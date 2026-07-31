@@ -15,6 +15,7 @@ const ICONS: Record<string, typeof Type> = {
   'nav-menu': Menu,
   'icon-box': Box,
   'image-carousel': GalleryHorizontal,
+  'image-gallery': ImageIcon,
   'loop-carousel': GalleryHorizontal,
   'social-icons': Share2,
   divider: Minus,
@@ -43,7 +44,8 @@ const TYPE_TONE: Record<string, 'volt' | 'cyan' | 'magenta' | 'amber' | 'edge'> 
 function detailOf(b: Extract<PreviewBlock, { kind: 'widget' }>) {
   const p = b.preview || { kind: '' };
   if (p.kind === 'image') return p.url ? p.url.split('/').pop() || p.url : '';
-  if (p.kind === 'carousel') return `${(p.images || []).length} slides`;
+  if (p.kind === 'carousel') return `${(p.images || []).length} slides${p.slideHeight ? ` · ${Math.round(p.slideHeight)}px tall` : ''}`;
+  if (p.kind === 'gallery') return `${(p.images || []).length} images (grid)`;
   if (p.kind === 'menu') return (p.items || []).slice(0, 5).map((i) => (typeof i === 'string' ? i : i.text)).join(' · ');
   if (p.kind === 'list') return (p.items || []).slice(0, 4).map((i) => (typeof i === 'string' ? i : i.text)).join(' · ');
   if (p.kind === 'button') return `${p.text} → ${p.url ? p.url.replace(/^https?:\/\//, '').slice(0, 40) : '#'}`;

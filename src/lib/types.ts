@@ -26,6 +26,9 @@ export type WidgetPreview = {
   height?: number;
   widget?: string;
   width?: { mode: string; value?: number };
+  captions?: string[];
+  slideHeight?: number | null;
+  opacity?: number | null;
 };
 
 export type PreviewBlock =

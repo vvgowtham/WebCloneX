@@ -163,15 +163,45 @@ function Widget({ b, scale, primary }: { b: Extract<PreviewBlock, { kind: 'widge
 
     case 'image-carousel': {
       const imgs = p.images || [];
+      const hero = imgs.length && (p.slideHeight || 0) > 200;
       return (
-        <div style={{ display: 'flex', gap: s(8), overflow: 'hidden', width: '100%' }}>
-          {imgs.slice(0, 4).map((u, i) => (
+        <div style={{ display: 'flex', gap: s(8), overflow: 'hidden', width: '100%', position: 'relative' }}>
+          {imgs.slice(0, hero ? 1 : 4).map((u, i) => (
+            <div key={i} style={{ flex: '1 1 0', minWidth: 0, position: 'relative' }}>
+              <img
+                src={u}
+                alt=""
+                loading="lazy"
+                style={{ width: '100%', height: hero ? s(p.slideHeight || 320) : s(150), objectFit: 'cover', borderRadius: hero ? 0 : s(6) }}
+                onError={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+              />
+              {(p.captions || [])[i] && (
+                <div
+                  style={{
+                    position: 'absolute', left: 0, right: 0, bottom: 0, padding: `${s(16)}px ${s(10)}px ${s(6)}px`,
+                    background: 'linear-gradient(transparent, rgba(0,0,0,.7))', color: '#fff', fontSize: s(12), fontWeight: 600,
+                  }}
+                >
+                  {p.captions![i]}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    case 'image-gallery': {
+      const imgs = p.images || [];
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: s(10), width: '100%' }}>
+          {imgs.slice(0, 9).map((u, i) => (
             <img
               key={i}
               src={u}
               alt=""
               loading="lazy"
-              style={{ flex: '1 1 0', minWidth: 0, height: s(150), objectFit: 'cover', borderRadius: s(6) }}
+              style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover', borderRadius: s(6) }}
               onError={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
             />
           ))}

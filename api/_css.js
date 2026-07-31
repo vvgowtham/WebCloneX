@@ -62,6 +62,9 @@ const WANTED = new Set([
   'flex-wrap',
   'text-shadow',
   'opacity',
+  'position',
+  'clip',
+  'clip-path',
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -548,9 +551,19 @@ export function resolveVar(sheet, value, depth = 0) {
   );
 }
 
+// Text properties that CSS defines as inherited: when an element carries no
+// matching rule for them, the value comes from its parent (browsers do this
+// for color, fonts, etc.). Without this, text inside a coloured section would
+// lose its inherited colour/typography in the clone.
+const INHERITED_PROPS = ['color', 'font-family', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform'];
+
 export function computedStyle(sheet, el) {
   if (!el || el.nodeType !== 1) return {};
   if (el.__cs) return el.__cs;
+
+  // Memoise eagerly to break parent<->child inheritance recursion.
+  const out = {};
+  el.__cs = out;
 
   const cl = classListOf(el);
   const buckets = [];
@@ -582,7 +595,6 @@ export function computedStyle(sheet, el) {
     }
   }
 
-  const out = {};
   for (const [prop, w] of winners) out[prop] = resolveVar(sheet, w.value).trim();
 
   // inline style attribute has the highest weight (short of !important rules)
@@ -597,7 +609,18 @@ export function computedStyle(sheet, el) {
     }
   }
 
-  el.__cs = out;
+  // UA stylesheet default: headings/bold tags are bold in every real browser,
+  // and inheritance must not wash that away.
+  if (out['font-weight'] === undefined && /^(H[1-6]|B|STRONG|TH)$/.test(el.tagName)) out['font-weight'] = '700';
+
+  // inherited text properties — resolve the parent only when needed
+  if (el.parentNode && el.parentNode.nodeType === 1 && INHERITED_PROPS.some((p) => out[p] === undefined)) {
+    const pcs = computedStyle(sheet, el.parentNode);
+    for (const p of INHERITED_PROPS) {
+      if (out[p] === undefined && pcs[p] !== undefined) out[p] = pcs[p];
+    }
+  }
+
   return out;
 }
 
@@ -667,7 +690,14 @@ export function isHidden(cs, el) {
   if (!revealed && /hidden|collapse/i.test(cs.visibility || '')) return true;
   if (!revealed && cs.opacity !== undefined && parseFloat(cs.opacity) === 0) return true;
   const cl = (el && el.getAttribute('class')) || '';
-  if (/elementor-hidden-desktop|elementor-hidden-widescreen|screen-reader-text|visually-hidden|sr-only/.test(cl)) return true;
+  if (/elementor-hidden-desktop|elementor-hidden-widescreen|screen-reader-text|visually-hidden|sr-only|elementor-screen-only/.test(cl)) return true;
+  // Screen-reader-only CSS signature: a clipped 1x1 box (all sr-only
+  // implementations share it). Its text must not leak into widgets.
+  const tiny =
+    cs.width && /px/.test(cs.width) && parseFloat(cs.width) <= 1 &&
+    cs.height && /px/.test(cs.height) && parseFloat(cs.height) <= 1;
+  const clipped = /rect\(\s*0/.test(cs.clip || '') || /inset\(\s*50%/.test(cs['clip-path'] || '');
+  if (tiny && clipped) return true;
   return false;
 }
 

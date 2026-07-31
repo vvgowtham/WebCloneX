@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme Blinds — Custom Window Solutions</title>
+<meta name="description" content="Handcrafted blinds and shutters.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap">
+<style>
+  :root { --acme: #c2410c; --dark: #1f2937; }
+  body { margin: 0; font-family: "Inter", system-ui, sans-serif; color: #1f2937; }
+  img { max-width: 100%; height: auto; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+  .site-header { background: #fff; border-bottom: 1px solid #eee; }
+  .site-header .container { display: flex; align-items: center; justify-content: space-between; padding-top: 14px; padding-bottom: 14px; }
+  .brand { display: flex; align-items: center; }
+  .site-header nav ul { list-style: none; display: flex; gap: 28px; margin: 0; padding: 0; }
+  .site-header nav a { color: #1f2937; text-decoration: none; font-weight: 600; font-size: 15px; }
+  .hero { background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)); background-color: #234; color: #fff; text-align: center; padding: 110px 0; }
+  .hero h1 { font-size: 52px; margin: 0 0 14px; font-weight: 800; }
+  .hero p { font-size: 19px; color: #e5e7eb; max-width: 640px; margin: 0 auto 28px; }
+  .btn { display: inline-block; background: var(--acme); color: #fff; padding: 14px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; }
+  .row { display: flex; gap: 36px; margin: 0 -18px; }
+  .col { flex: 1; padding: 0 18px; }
+  .features { padding: 72px 0; }
+  .features h3 { font-size: 22px; margin: 16px 0 8px; }
+  .features p { color: #4b5563; margin: 0; }
+  .split { padding: 72px 0; background: #f9fafb; }
+  .split h2 { font-size: 34px; margin: 0 0 16px; }
+  .ticks { list-style: none; padding: 0; margin: 20px 0 0; }
+  .ticks li { padding: 10px 0 10px 34px; position: relative; }
+  .ticks li::before { content: "✓"; position: absolute; left: 0; color: var(--acme); font-weight: 800; }
+  footer { background: #111827; color: #9ca3af; text-align: center; padding: 34px 0; }
+  footer a { color: #e5e7eb; }
+  .sr-only { display: none; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="https://acme.test/"><img src="/logo.svg" alt="Acme Blinds"></a>
+    <nav>
+      <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/products">Products</a></li>
+        <li><a href="/gallery">Gallery</a></li>
+        <li><a href="/about">About</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <section class="hero">
+    <div class="container">
+      <h1>Blinds made for your windows</h1>
+      <p>Custom-measured, hand-finished and installed by our own team in under two weeks.</p>
+      <a class="btn" href="/quote">Get a free quote</a>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="container">
+      <div class="row">
+        <div class="col">
+          <img src="/feat-measure.svg" alt="measure">
+          <h3>Perfect fit</h3>
+          <p>Laser-measured for millimetre accuracy on every window type.</p>
+        </div>
+        <div class="col">
+          <img src="/feat-materials.svg" alt="materials">
+          <h3>Honest materials</h3>
+          <p>Basswood, aluminium and performance fabrics that last for decades.</p>
+        </div>
+        <div class="col">
+          <img src="/feat-install.svg" alt="install">
+          <h3>Clean install</h3>
+          <p>Fitted by certified installers — no dust, no drama, no delays.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="split">
+    <div class="container">
+      <div class="row">
+        <div class="col">
+          <h2>Why homeowners pick Acme</h2>
+          <p>We obsess over the details other blind companies skip.</p>
+          <ul class="ticks">
+            <li>Free in-home consultation</li>
+            <li>Five-year warranty on every product</li>
+            <li>Motorisation options on most ranges</li>
+          </ul>
+        </div>
+        <div class="col">
+          <img src="https://polytechpvcprofile.com/wp-content/uploads/2025/03/Benner-2.jpg" alt="showroom">
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>© 2026 Acme Blinds · <a href="/privacy">Privacy</a> · Crafted with pride.</p>
+  </div>
+</footer>
+
+</body>
+</html>
