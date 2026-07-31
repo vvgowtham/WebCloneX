@@ -65,6 +65,61 @@ const WANTED = new Set([
   'position',
   'clip',
   'clip-path',
+  'inset',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'z-index',
+  'overflow',
+  'overflow-x',
+  'overflow-y',
+  'transform',
+  'transform-origin',
+  'transition',
+  'transition-property',
+  'transition-duration',
+  'transition-timing-function',
+  'transition-delay',
+  'animation',
+  'animation-name',
+  'animation-duration',
+  'animation-timing-function',
+  'animation-delay',
+  'animation-fill-mode',
+  'animation-iteration-count',
+  'filter',
+  'backdrop-filter',
+  'object-fit',
+  'object-position',
+  'aspect-ratio',
+  'flex',
+  'flex-grow',
+  'flex-shrink',
+  'flex-basis',
+  'align-self',
+  'justify-items',
+  'place-items',
+  'grid-template-columns',
+  'grid-template-rows',
+  'grid-auto-flow',
+  'grid-column',
+  'grid-row',
+  'list-style',
+  'list-style-type',
+  'white-space',
+  'word-break',
+  'overflow-wrap',
+  'vertical-align',
+  'text-shadow',
+  'float',
+  'clear',
+  'cursor',
+  'pointer-events',
+  'user-select',
+  'mix-blend-mode',
+  'background-clip',
+  'content',
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -75,15 +130,34 @@ function stripComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
-function mediaApplies(cond) {
+// Every media block is routed to exactly one bucket:
+//   desktop (applies at the reference 1440px viewport) or a narrow bucket
+//   whose rules are replayed on demand for tablet/mobile responsive settings.
+function mediaBucket(cond) {
   const c = cond.toLowerCase();
-  if (/print|speech/.test(c)) return false;
-  // desktop viewport ~1440px
+  if (/print|speech/.test(c)) return null;
   const maxes = [...c.matchAll(/max-width\s*:\s*(\d+)px/g)].map((m) => Number(m[1]));
   const mins = [...c.matchAll(/min-width\s*:\s*(\d+)px/g)].map((m) => Number(m[1]));
-  if (maxes.some((v) => v < 1440)) return false;
-  if (mins.some((v) => v > 1440)) return false;
-  return true;
+  if (maxes.length && !mins.length) {
+    const top = Math.max(...maxes);
+    if (top <= 800) return 'mobile';
+    if (top <= 1100) return 'tablet';
+    return 'desktop';
+  }
+  if (mins.length && !maxes.length) {
+    const bottom = Math.min(...mins);
+    if (bottom > 1100) return null; // xl-only rules: never applicable
+    return 'desktop';
+  }
+  if (mins.length && maxes.length) {
+    return Math.max(...maxes) <= 800 ? 'mobile' : Math.max(...maxes) <= 1100 ? 'tablet' : null;
+  }
+  return 'desktop';
+}
+
+function mediaApplies(cond) {
+  const bucket = mediaBucket(cond);
+  return bucket === 'desktop';
 }
 
 function parseDeclarations(text) {
@@ -317,7 +391,7 @@ function keyFor(compound) {
   return '*';
 }
 
-export function parseStylesheet(css, sink, order) {
+export function parseStylesheet(css, sink, order, depth = 0) {
   const text = stripComments(css);
   let i = 0;
   const n = text.length;
@@ -349,17 +423,54 @@ export function parseStylesheet(css, sink, order) {
       const head = text.slice(bufStart, i).trim();
       if (head.startsWith('@')) {
         const at = head.slice(1).split(/[\s({]/)[0].toLowerCase();
-        if (at === 'media' && !mediaApplies(head)) {
-          // skip the whole block
+        // keyframes: capture the raw block text so custom CSS animations can
+        // be re-emitted by the renderer alongside converted widgets.
+        if (at === 'keyframes' || /^(-\w+-)?keyframes$/.test(at)) {
           let depth = 1;
-          i++;
-          while (i < n && depth > 0) {
-            if (text[i] === '{') depth++;
-            else if (text[i] === '}') depth--;
-            i++;
+          let j = i + 1;
+          while (j < n && depth > 0) {
+            if (text[j] === '{') depth++;
+            else if (text[j] === '}') depth--;
+            j++;
           }
+          const name = head.replace(/^@(-\w+-)?keyframes\s+/i, '').trim();
+          if (name && sink.keyframes) sink.keyframes.set(name, text.slice(i + 1, j - 1).trim());
+          i = j;
           bufStart = i;
           continue;
+        }
+        if (at === 'media') {
+          const bucket = mediaBucket(head);
+          if (bucket && bucket !== 'desktop') {
+            // responsive bucket: parse inner rules into the bucket sink so
+            // narrow-viewport overrides can be replayed on demand.
+            let depth = 1;
+            let j = i + 1;
+            while (j < n && depth > 0) {
+              if (text[j] === '{') depth++;
+              else if (text[j] === '}') depth--;
+              j++;
+            }
+            const inner = text.slice(i + 1, j - 1);
+            const sinkName = bucket === 'mobile' ? 'mobileIndex' : 'tabletIndex';
+            if (!sink[sinkName]) sink[sinkName] = new Map();
+            parseStylesheet(inner, { ...sink, index: sink[sinkName], keyframes: sink.keyframes }, order, depth + 1);
+            i = j;
+            bufStart = i;
+            continue;
+          }
+          if (!bucket) {
+            let depth = 1;
+            i++;
+            while (i < n && depth > 0) {
+              if (text[i] === '{') depth++;
+              else if (text[i] === '}') depth--;
+              i++;
+            }
+            bufStart = i;
+            continue;
+          }
+          // desktop bucket → fall through to nested parsing of main index
         }
         if (at === 'media' || at === 'supports' || at === 'layer') {
           stack.push('nested');
@@ -367,7 +478,7 @@ export function parseStylesheet(css, sink, order) {
           bufStart = i;
           continue;
         }
-        // font-face, keyframes, etc → skip block
+        // font-face, page, etc → skip block
         let depth = 1;
         i++;
         while (i < n && depth > 0) {
@@ -478,7 +589,24 @@ function selectorMatches(el, compounds) {
 /* ------------------------------------------------------------------ */
 
 export function createSheet() {
-  return { index: new Map(), vars: new Map() };
+  return {
+    index: new Map(),
+    vars: new Map(),
+    mobileIndex: new Map(),
+    tabletIndex: new Map(),
+    keyframes: new Map(),
+  };
+}
+
+// Computed style with a responsive bucket layered on top of the desktop
+// cascade (media rules only override — they never un-set desktop values).
+export function computedStyleAt(sheet, el, bucket) {
+  const base = { ...computedStyle(sheet, el) };
+  const index = bucket === 'mobile' ? sheet.mobileIndex : bucket === 'tablet' ? sheet.tabletIndex : null;
+  if (!index || index.size === 0) return base;
+  const rerouted = { index, vars: sheet.vars, mobileIndex: sheet.mobileIndex, tabletIndex: sheet.tabletIndex, keyframes: sheet.keyframes };
+  const over = rawComputed(rerouted, el, true);
+  return { ...base, ...over };
 }
 
 export async function loadStyles(root, base, rawHtml, opts = {}) {
@@ -557,13 +685,13 @@ export function resolveVar(sheet, value, depth = 0) {
 // lose its inherited colour/typography in the clone.
 const INHERITED_PROPS = ['color', 'font-family', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-transform'];
 
-export function computedStyle(sheet, el) {
+function rawComputed(sheet, el, skipMemo = false) {
   if (!el || el.nodeType !== 1) return {};
-  if (el.__cs) return el.__cs;
+  if (!skipMemo && el.__cs) return el.__cs;
 
   // Memoise eagerly to break parent<->child inheritance recursion.
   const out = {};
-  el.__cs = out;
+  if (!skipMemo) el.__cs = out;
 
   const cl = classListOf(el);
   const buckets = [];
@@ -613,15 +741,19 @@ export function computedStyle(sheet, el) {
   // and inheritance must not wash that away.
   if (out['font-weight'] === undefined && /^(H[1-6]|B|STRONG|TH)$/.test(el.tagName)) out['font-weight'] = '700';
 
-  // inherited text properties — resolve the parent only when needed
-  if (el.parentNode && el.parentNode.nodeType === 1 && INHERITED_PROPS.some((p) => out[p] === undefined)) {
-    const pcs = computedStyle(sheet, el.parentNode);
-    for (const p of INHERITED_PROPS) {
-      if (out[p] === undefined && pcs[p] !== undefined) out[p] = pcs[p];
+  // inherited text properties from the nearest ancestor that has them
+  if (el.parentNode && el.parentNode.nodeType === 1) {
+    const parent = skipMemo ? rawComputed(sheet, el.parentNode, true) : computedStyle(sheet, el.parentNode);
+    for (const prop of INHERITED_PROPS) {
+      if (out[prop] === undefined && parent[prop] !== undefined) out[prop] = parent[prop];
     }
   }
 
   return out;
+}
+
+export function computedStyle(sheet, el) {
+  return rawComputed(sheet, el, false);
 }
 
 /* helpers ---------------------------------------------------------- */
@@ -691,6 +823,8 @@ export function isHidden(cs, el) {
   if (!revealed && cs.opacity !== undefined && parseFloat(cs.opacity) === 0) return true;
   const cl = (el && el.getAttribute('class')) || '';
   if (/elementor-hidden-desktop|elementor-hidden-widescreen|screen-reader-text|visually-hidden|sr-only|elementor-screen-only/.test(cl)) return true;
+  // runtime hint injected by the browser capture stage: JS hid this element
+  if (el && el.getAttribute && el.getAttribute('data-elx-js-hidden')) return true;
   // Screen-reader-only CSS signature: a clipped 1x1 box (all sr-only
   // implementations share it). Its text must not leak into widgets.
   const tiny =

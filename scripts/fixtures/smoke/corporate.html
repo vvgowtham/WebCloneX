@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NovaWave Solutions</title>
+<meta name="description" content="Corporate archetype: counters, progress bars, form, grid services, animations, sticky nav, social.">
+<style>
+  :root { --accent: #6d28d9; --ink: #0f172a; }
+  body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #334155; font-size: 16px; }
+  img { max-width: 100%; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+
+  @keyframes riseFade {
+    from { opacity: 0; transform: translateY(46px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes glowPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(109,40,217,.35); }
+    50% { box-shadow: 0 0 0 14px rgba(109,40,217,0); }
+  }
+
+  .site-header { position: sticky; background: #ffffffee; border-bottom: 1px solid #e2e8f0; }
+  .site-header .wrap { display: flex; justify-content: space-between; align-items: center; padding-top: 14px; padding-bottom: 14px; }
+  .logo { font-weight: 800; font-size: 21px; color: var(--ink); text-decoration: none; }
+  .logo em { color: var(--accent); font-style: normal; }
+  .main-nav a { color: #475569; text-decoration: none; margin-left: 26px; font-size: 15px; transition: color .3s ease; }
+  .main-nav a:hover { color: var(--accent); }
+
+  .hero { background: linear-gradient(135deg, #1e1b4b 0%, #4c1d95 60%, #6d28d9 100%); color: #fff; padding: 96px 0 86px; text-align: center; }
+  .hero h1 { font-size: 44px; margin: 0 0 12px; animation: riseFade .8s ease both; }
+  .hero p { font-size: 18px; opacity: .85; max-width: 700px; margin: 0 auto 28px; animation: riseFade .8s .15s ease both; }
+  .hero .cta { display: inline-block; background: #fff; color: #4c1d95; padding: 13px 32px; border-radius: 999px; font-weight: 700; text-decoration: none; animation: glowPulse 2.4s infinite; transition: transform .25s ease; }
+  .hero .cta:hover { transform: translateY(-2px); }
+
+  .stats { padding: 54px 0; }
+  .stats .wrap { display: flex; gap: 20px; text-align: center; }
+  .stat { flex: 1; }
+  .stat .count { font-size: 40px; font-weight: 800; color: var(--accent); }
+  .stat .lbl { color: #64748b; font-size: 14px; }
+
+  .skills { padding: 30px 0 66px; }
+  .skills h2, .services h2, .contact h2 { font-size: 30px; color: var(--ink); text-align: center; margin: 0 0 26px; }
+  .skill { max-width: 620px; margin: 0 auto 18px; }
+  .skill .lbl { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .skill .bar { height: 9px; background: #e9d5ff; border-radius: 5px; }
+  .skill .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+
+  .services { padding: 60px 0 70px; background: #f8fafc; }
+  .svc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .svc-card { background: #fff; border-radius: 14px; padding: 28px; box-shadow: 0 8px 24px rgba(15,23,42,.06); transition: transform .3s ease, box-shadow .3s ease; }
+  .svc-card:hover { transform: translateY(-6px); box-shadow: 0 18px 40px rgba(15,23,42,.12); }
+  .svc-card h3 { margin: 0 0 8px; font-size: 19px; color: var(--ink); }
+  .svc-card p { margin: 0; font-size: 14.5px; color: #64748b; }
+  .svc-card .ic { font-size: 26px; margin-bottom: 10px; }
+
+  .contact { padding: 66px 0; }
+  .contact form { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .contact label { font-size: 13px; font-weight: 600; color: #334155; }
+  .contact input, .contact select, .contact textarea { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; font-size: 15px; font-family: inherit; }
+  .contact button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 13px; font-size: 16px; font-weight: 700; cursor: pointer; transition: background .3s ease; }
+  .contact button:hover { background: #5b21b6; }
+
+  .social { text-align: center; padding: 0 0 50px; }
+  .social a { display: inline-block; width: 38px; height: 38px; line-height: 38px; border-radius: 50%; background: #ede9fe; color: var(--accent); font-weight: 700; text-decoration: none; margin: 0 6px; font-size: 14px; }
+
+  .footer { background: #0f172a; color: #94a3b8; text-align: center; padding: 26px 0; font-size: 14px; }
+
+  .aos-fade { opacity: 0; }
+  .aos-fade.aos-on { animation: riseFade .8s ease both; }
+
+  @media (max-width: 767px) {
+    .main-nav { display: none; }
+    .hero h1 { font-size: 30px; }
+    .stats .wrap { flex-wrap: wrap; }
+    .stat { flex: 0 0 45%; }
+    .svc-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="logo" href="/">Nova<em>Wave</em></a>
+    <nav class="main-nav">
+      <a href="#home">Home</a><a href="#services">Services</a><a href="#skills">Expertise</a><a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" id="home">
+    <div class="wrap">
+      <h1>Cloud ops that scale with you</h1>
+      <p>NovaWave designs resilient platforms for finance, health and retail teams shipping globally.</p>
+      <a class="cta" href="#contact">Book a strategy call</a>
+    </div>
+  </section>
+
+  <section class="stats" data-aos="fade-up">
+    <div class="wrap">
+      <div class="stat counter"><div class="count">1200</div><div class="lbl">Deployments / month</div></div>
+      <div class="stat counter"><div class="count">99.98</div><div class="lbl">Uptime %</div></div>
+      <div class="stat counter"><div class="count">68</div><div class="lbl">Enterprise clients</div></div>
+      <div class="stat counter"><div class="count">14</div><div class="lbl">Countries served</div></div>
+    </div>
+  </section>
+
+  <section class="skills" id="skills">
+    <h2>Platform expertise</h2>
+    <div class="skill progress"><div class="lbl"><span>Kubernetes</span><span>92%</span></div><div class="bar"><i style="width:92%"></i></div></div>
+    <div class="skill progress"><div class="lbl"><span>Zero-trust security</span><span>88%</span></div><div class="bar"><i style="width:88%"></i></div></div>
+    <div class="skill progress"><div class="lbl"><span>FinOps &amp; cost</span><span>81%</span></div><div class="bar"><i style="width:81%"></i></div></div>
+  </section>
+
+  <section class="services" id="services">
+    <div class="wrap">
+      <h2>What we deliver</h2>
+      <div class="svc-grid">
+        <div class="svc-card" data-aos="zoom-in"><div class="ic">⚙</div><h3>Platform Engineering</h3><p>Internal developer platforms with paved-road templates and golden paths.</p></div>
+        <div class="svc-card" data-aos="zoom-in"><div class="ic">🛡</div><h3>Security &amp; Compliance</h3><p>SOC 2, HIPAA and PCI guardrails baked into pipelines, not bolted on.</p></div>
+        <div class="svc-card" data-aos="zoom-in"><div class="ic">📈</div><h3>Cost Optimisation</h3><p>Real-time spend visibility and rightsizing that pays for the engagement.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="contact" id="contact">
+    <h2>Talk to an architect</h2>
+    <form action="/thank-you" method="post">
+      <label for="f-name">Full name *</label>
+      <input id="f-name" name="name" type="text" placeholder="Ada Lovelace" required>
+      <label for="f-mail">Work email *</label>
+      <input id="f-mail" name="email" type="email" placeholder="ada@company.com" required>
+      <label for="f-size">Company size</label>
+      <select id="f-size" name="size">
+        <option>1–50</option><option>51–200</option><option>201–1000</option><option>1000+</option>
+      </select>
+      <label for="f-msg">What are you building?</label>
+      <textarea id="f-msg" name="message" rows="4" placeholder="Tell us about your platform…"></textarea>
+      <input type="hidden" name="utm" value="site">
+      <button type="submit">Request consultation</button>
+    </form>
+  </section>
+
+  <div class="social">
+    <a href="https://linkedin.com/company/novawave">in</a>
+    <a href="https://twitter.com/novawave">𝕏</a>
+    <a href="https://github.com/novawave">GH</a>
+    <a href="https://youtube.com/@novawave">▶</a>
+  </div>
+</main>
+
+<footer class="footer"><div class="wrap">© 2026 NovaWave Solutions · Made with care</div></footer>
+
+</body>
+</html>

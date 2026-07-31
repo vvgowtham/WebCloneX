@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   ChevronRight, Columns3, Image as ImageIcon, Heading1, Type, MousePointerClick, List, Minus, Film, Map, Code2,
-  FileInput, Quote, Table2, Menu, Box, GalleryHorizontal, Share2, MoveVertical, Rows3,
+  FileInput, Quote, Table2, Menu, Box, GalleryHorizontal, Share2, MoveVertical, Rows3, Hash, BarChart3, ListCollapse, SquareStack,
 } from 'lucide-react';
 import type { CloneSection, PreviewBlock, PreviewColumn } from '../lib/types';
 import { Tag } from './Bits';
@@ -27,6 +27,12 @@ const ICONS: Record<string, typeof Type> = {
   shortcode: FileInput,
   blockquote: Quote,
   table: Table2,
+  counter: Hash,
+  progress: BarChart3,
+  'progress-bar': BarChart3,
+  toggle: ListCollapse,
+  accordion: ListCollapse,
+  tabs: SquareStack,
 };
 
 const TYPE_TONE: Record<string, 'volt' | 'cyan' | 'magenta' | 'amber' | 'edge'> = {
@@ -138,6 +144,7 @@ export default function StructureTree({ sections }: { sections: CloneSection[] }
               <ChevronRight size={15} className={`shrink-0 text-dim transition-transform ${isOpen ? 'rotate-90' : ''}`} />
               <span className="font-display text-sm font-semibold">{s.name}</span>
               <Tag tone={TYPE_TONE[s.type] || 'edge'}>{s.type}</Tag>
+              {s.layout && s.layout !== 'block' && <Tag tone="edge">{s.layout}</Tag>}
               <span className="ml-auto hidden items-center gap-3 font-mono text-[11px] text-dim sm:flex">
                 <span className="flex items-center gap-1">
                   <Columns3 size={12} /> {s.columnCount}

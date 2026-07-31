@@ -27,6 +27,4 @@ dist-ssr
 
 vercel.json
 .env
-
-.vercel
 .env*

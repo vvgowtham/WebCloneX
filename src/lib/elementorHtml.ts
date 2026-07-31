@@ -164,6 +164,87 @@ const BRAND_ICONS: Array<[RegExp, string, string]> = [
   [/discord/, 'globe', '#5865F2'],
 ];
 
+/* ------------------------------------------------------------- animation */
+
+// Minimal animate.css-compatible keyframes: only the entrances a page really
+// uses are embedded into the rendered document.
+const ANIM_FRAMES: Record<string, string> = {
+  fadeIn: '@keyframes fadeIn{from{opacity:0}to{opacity:1}}',
+  fadeInUp: '@keyframes fadeInUp{from{opacity:0;transform:translate3d(0,40px,0)}to{opacity:1;transform:none}}',
+  fadeInDown: '@keyframes fadeInDown{from{opacity:0;transform:translate3d(0,-40px,0)}to{opacity:1;transform:none}}',
+  fadeInLeft: '@keyframes fadeInLeft{from{opacity:0;transform:translate3d(-40px,0,0)}to{opacity:1;transform:none}}',
+  fadeInRight: '@keyframes fadeInRight{from{opacity:0;transform:translate3d(40px,0,0)}to{opacity:1;transform:none}}',
+  zoomIn: '@keyframes zoomIn{from{opacity:0;transform:scale3d(.3,.3,.3)}to{opacity:1;transform:none}}',
+  zoomInUp: '@keyframes zoomInUp{from{opacity:0;transform:scale3d(.1,.1,.1) translate3d(0,1000px,0)}to{opacity:1;transform:none}}',
+  zoomOut: '@keyframes zoomOut{from{opacity:1}50%{opacity:0;transform:scale3d(.3,.3,.3)}to{opacity:0}}',
+  slideInUp: '@keyframes slideInUp{from{transform:translate3d(0,100%,0);visibility:visible}to{transform:none}}',
+  slideInDown: '@keyframes slideInDown{from{transform:translate3d(0,-100%,0);visibility:visible}to{transform:none}}',
+  slideInLeft: '@keyframes slideInLeft{from{transform:translate3d(-100%,0,0);visibility:visible}to{transform:none}}',
+  slideInRight: '@keyframes slideInRight{from{transform:translate3d(100%,0,0);visibility:visible}to{transform:none}}',
+  rotateIn: '@keyframes rotateIn{from{transform:rotate3d(0,0,1,-200deg);opacity:0}to{transform:none;opacity:1}}',
+  flipInX: '@keyframes flipInX{from{transform:perspective(400px) rotate3d(1,0,0,90deg);opacity:0}to{transform:perspective(400px);opacity:1}}',
+  flipInY: '@keyframes flipInY{from{transform:perspective(400px) rotate3d(0,1,0,90deg);opacity:0}to{transform:perspective(400px);opacity:1}}',
+  bounceIn: '@keyframes bounceIn{0%{opacity:0;transform:scale3d(.3,.3,.3)}50%{transform:scale3d(1.05,1.05,1.05)}70%{transform:scale3d(.9,.9,.9)}100%{opacity:1;transform:scale3d(1,1,1)}}',
+  bounceInUp: '@keyframes bounceInUp{0%{opacity:0;transform:translate3d(0,3000px,0)}60%{opacity:1;transform:translate3d(0,-20px,0)}100%{transform:none}}',
+  bounceInDown: '@keyframes bounceInDown{0%{opacity:0;transform:translate3d(0,-3000px,0)}60%{opacity:1;transform:translate3d(0,25px,0)}100%{transform:none}}',
+  bounceInLeft: '@keyframes bounceInLeft{0%{opacity:0;transform:translate3d(-3000px,0,0)}60%{opacity:1;transform:translate3d(25px,0,0)}100%{transform:none}}',
+  bounceInRight: '@keyframes bounceInRight{0%{opacity:0;transform:translate3d(3000px,0,0)}60%{opacity:1;transform:translate3d(-25px,0,0)}100%{transform:none}}',
+  pulse: '@keyframes pulse{from{transform:scale3d(1,1,1)}50%{transform:scale3d(1.05,1.05,1.05)}to{transform:scale3d(1,1,1)}}',
+  swing: '@keyframes swing{20%{transform:rotate3d(0,0,1,15deg)}40%{transform:rotate3d(0,0,1,-10deg)}60%{transform:rotate3d(0,0,1,5deg)}80%{transform:rotate3d(0,0,1,-5deg)}to{transform:rotate3d(0,0,1,0deg)}}',
+  tada: '@keyframes tada{from{transform:scale3d(1,1,1)}10%,20%{transform:scale3d(.9,.9,.9) rotate3d(0,0,1,-3deg)}30%,50%,70%,90%{transform:scale3d(1.1,1.1,1.1) rotate3d(0,0,1,3deg)}40%,60%,80%{transform:scale3d(1.1,1.1,1.1) rotate3d(0,0,1,-3deg)}to{transform:scale3d(1,1,1)}}',
+  wobble: '@keyframes wobble{from{transform:translate3d(0,0,0)}15%{transform:translate3d(-25%,0,0) rotate3d(0,0,1,-5deg)}30%{transform:translate3d(20%,0,0) rotate3d(0,0,1,3deg)}45%{transform:translate3d(-15%,0,0) rotate3d(0,0,1,-3deg)}60%{transform:translate3d(10%,0,0) rotate3d(0,0,1,2deg)}75%{transform:translate3d(-5%,0,0) rotate3d(0, 0,1,-1deg)}to{transform:none}}',
+  jello: '@keyframes jello{11.1%{transform:none}22.2%{transform:skewX(-12.5deg) skewY(-12.5deg)}33.3%{transform:skewX(6.25deg) skewY(6.25deg)}44.4%{transform:skewX(-3.125deg) skewY(-3.125deg)}55.5%{transform:skewX(1.5625deg) skewY(1.5625deg)}66.6%{transform:skewX(-.78125deg) skewY(-.78125deg)}77.7%{transform:skewX(.390625deg) skewY(.390625deg)}88.8%{transform:skewX(-.1953125deg) skewY(-.1953125deg)}to{transform:none}}',
+  rubberBand: '@keyframes rubberBand{from{transform:scale3d(1,1,1)}30%{transform:scale3d(1.25,.75,1)}40%{transform:scale3d(.75,1.25,1)}50%{transform:scale3d(1.15,.85,1)}65%{transform:scale3d(.95,1.05,1)}75%{transform:scale3d(1.05,.95,1)}to{transform:scale3d(1,1,1)}}',
+  shake: '@keyframes shake{from,to{transform:translate3d(0,0,0)}10%,30%,50%,70%,90%{transform:translate3d(-10px,0,0)}20%,40%,60%,80%{transform:translate3d(10px,0,0)}}',
+  flash: '@keyframes flash{from,50%,to{opacity:1}25%,75%{opacity:0}}',
+  heartbeat: '@keyframes heartbeat{from{transform:scale(1)}14%{transform:scale(1.3)}28%{transform:scale(1)}42%{transform:scale(1.3)}70%{transform:scale(1)}}',
+  lightSpeedIn: '@keyframes lightSpeedIn{from{transform:translate3d(100%,0,0) skewX(-30deg);opacity:0}60%{transform:skewX(20deg);opacity:1}80%{transform:skewX(-5deg)}to{transform:none;opacity:1}}',
+  rollIn: '@keyframes rollIn{from{opacity:0;transform:translate3d(-100%,0,0) rotate3d(0,0,1,-120deg)}to{opacity:1;transform:none}}',
+};
+
+// Entrance-animation / transition state of a converted element. Elements
+// start hidden only when motion is allowed; the IO reveal script flips
+// --elx-ps to running exactly when the element scrolls into view.
+function motionOf(s: ElxSettings, ctx: { css: string[]; design: RenderDesign; anims?: Set<string>; customAnims?: string[] }): { cls: string; style: string } {
+  const style: string[] = [];
+  let cls = '';
+  const name = String(s._animation || s._elx_custom_anim || '');
+  if (name) {
+    if (ctx.anims) ctx.anims.add(name);
+    if (s._elx_custom_anim_css && ctx.customAnims) ctx.customAnims.push(String(s._elx_custom_anim_css));
+    const delay = num(s._animation_delay);
+    cls = ' elx-will-anim';
+    style.push(
+      `animation-name:${name}`,
+      'animation-duration:.9s',
+      'animation-fill-mode:both',
+      'animation-timing-function:cubic-bezier(.23,.6,.36,1)',
+      'animation-play-state:var(--elx-ps,running)'
+    );
+    if (delay) style.push(`animation-delay:${delay}ms`);
+  }
+  const tr = s._elx_transition as string | undefined;
+  if (tr) style.push(`transition:${tr}`);
+  return { cls, style: style.length ? style.join(';') : '' };
+}
+
+const MOTION_CSS = `@media (prefers-reduced-motion: no-preference){
+.elx-will-anim{opacity:0}
+.elx-will-anim{--elx-ps:paused}
+.elx-anim-on{--elx-ps:running}
+}
+@media (prefers-reduced-motion: reduce){
+.elx-will-anim{animation:none !important}
+}`;
+
+const REVEAL_SNIPPET = `(function(){
+  var els=document.querySelectorAll('.elx-will-anim');
+  if(!els.length)return;
+  if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('elx-anim-on')});return;}
+  var io=new IntersectionObserver(function(list){list.forEach(function(x){if(x.isIntersecting){x.target.classList.add('elx-anim-on');io.unobserve(x.target);}})},{rootMargin:'0px 0px -6% 0px'});
+  els.forEach(function(e){io.observe(e)});
+})();`;
+
 /* -------------------------------------------------------------- base css */
 
 function baseCss(primary: string): string {
@@ -236,6 +317,17 @@ figure{margin:0}
 .elx-placeholder{border:1px dashed #c3c6cf;border-radius:6px;padding:18px;text-align:center;font:12px/1.5 ui-monospace,monospace;color:#7d7f8c;word-break:break-all;background:rgba(122,122,140,.05)}
 table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #ddd;padding:8px}
+.elx-toggle .elementor-toggle-item{border:1px solid #e4e6eb;border-radius:6px;margin-bottom:10px;overflow:hidden}
+.elx-toggle summary{list-style:none;display:flex;align-items:center;gap:10px;padding:14px 18px;font-weight:600;cursor:pointer;background:transparent}
+.elx-toggle summary::-webkit-details-marker{display:none}
+.elx-toggle .elementor-toggle-icon{flex:none;display:inline-flex;width:1.4em;justify-content:center;color:${primary};font-weight:700}
+.elx-toggle details[open] .elementor-toggle-icon{transform:rotate(45deg)}
+.elx-toggle .elementor-toggle-content{padding:0 18px 16px;color:inherit}
+.elx-progress{display:flex;flex-direction:column;gap:6px}
+.elx-progress-label{font-weight:600;font-size:.95em}
+.elx-progress-track{height:8px;background:rgba(0,0,0,.08);border-radius:4px;overflow:hidden}
+.elx-progress-inner{height:100%;background:${primary};border-radius:4px;display:flex;justify-content:flex-end;align-items:center;transition:width 1s ease}
+.elx-progress-pct{font-size:9px;color:#fff;padding-right:4px;line-height:1}
 .e-con{--flex-direction:column;--flex-gap:0px;display:flex;flex-direction:var(--flex-direction);gap:var(--flex-gap);position:relative;width:100%;min-width:0}
 .e-con-boxed>.e-con-inner{max-width:1140px;margin:0 auto;width:100%}
 .e-con-inner{display:flex;flex-direction:var(--flex-direction);gap:var(--flex-gap);width:100%}
@@ -312,8 +404,11 @@ function renderWidget(w: ElxElement, ctx: { css: string[]; design: RenderDesign 
       const align = String(s.align || 'center');
       if (align === 'center') ctx.css.push(`${sel} .elementor-widget-container{text-align:center}`);
       else if (align === 'right') ctx.css.push(`${sel} .elementor-widget-container{text-align:right}`);
+      const srcset = s._elx_srcset ? ` srcset="${esc(String(s._elx_srcset))}"` : '';
+      const sizes = s._elx_sizes ? ` sizes="${esc(String(s._elx_sizes))}"` : '';
+      const loading = s._elx_lazy === 'yes' ? 'lazy' : 'eager';
       const link = s.link as { url?: string } | undefined;
-      const inner = `<img src="${esc(img.url)}" alt="${esc(img.alt || '')}" loading="eager">`;
+      const inner = `<img src="${esc(img.url)}" alt="${esc(img.alt || '')}" loading="${loading}"${srcset}${sizes}>`;
       const captioned = s._elx_caption
         ? `<figure class="elx-figcap">${inner}<figcaption>${esc(String(s._elx_caption))}</figcaption></figure>`
         : inner;
@@ -553,6 +648,26 @@ function renderWidget(w: ElxElement, ctx: { css: string[]; design: RenderDesign 
       return `<div class="${cls}" style="text-align:center"><div class="elementor-widget-container"><div style="font-size:2.6em;font-weight:700;color:${esc(s.number_color || primary)}">${n}</div><div>${esc(s.title)}</div></div></div>`;
     }
 
+    case 'toggle':
+    case 'accordion': {
+      const items = (s.tabs || []) as Array<{ tab_title?: string; tab_content?: string }>;
+      const list = items
+        .slice(0, 12)
+        .map(
+          (it) =>
+            `<details class="elementor-toggle-item"><summary class="elementor-toggle-title"><span class="elementor-toggle-icon">+</span>${esc(it.tab_title || '')}</summary><div class="elementor-toggle-content">${String(it.tab_content || '')}</div></details>`
+        )
+        .join('');
+      return `<div class="${cls}"><div class="elementor-widget-container"><div class="elx-toggle">${list}</div></div></div>`;
+    }
+
+    case 'progress': {
+      const pctVal = Math.max(0, Math.min(100, num((s.percent as Dim | undefined)?.size) ?? 0));
+      ctx.css.push(`${sel} .elx-progress-inner{width:${pctVal}%}`);
+      const title = s.title ? `<span class="elx-progress-label">${esc(String(s.title))}</span>` : '';
+      return `<div class="${cls}"><div class="elementor-widget-container"><div class="elx-progress">${title}<div class="elx-progress-track"><div class="elx-progress-inner" style="width:${pctVal}%"><span class="elx-progress-pct">${pctVal}%</span></div></div></div></div></div>`;
+    }
+
     default: {
       // Unknown widget: render any html payload, else a light placeholder.
       if (s.html) return `<div class="${cls}"><div class="elementor-widget-container">${String(s.html)}</div></div>`;
@@ -596,6 +711,7 @@ function columnCss(col: ElxElement, colsTotal: number): string {
   if (sbw !== null) rules.push(`${sel} .elementor-widget:not(:last-child){margin-block-end:${sbw}px}`);
   const pad = dimCss(s.padding as Dim);
   if (pad && pad !== '0px 0px 0px 0px') rules.push(`${sel}>.elementor-widget-wrap{padding:${pad}}`);
+  rules.push(...responsiveCss(sel, s, { pad: '>.elementor-widget-wrap' }));
   return rules.filter(Boolean).join('\n');
 }
 
@@ -611,6 +727,7 @@ function sectionCss(sec: ElxElement): string {
   const s = sec.settings;
   const sel = `.elementor-element-${sec.id}`;
   const rules: string[] = [];
+  rules.push(...responsiveCss(sel, s, { pad: '' }));
   const bg = bgCss(s);
   if (bg) rules.push(`${sel}{${bg}}`);
   const pad = dimCss(s.padding as Dim);
@@ -623,13 +740,15 @@ function sectionCss(sec: ElxElement): string {
   return rules.filter(Boolean).join('\n');
 }
 
-function renderSection(sec: ElxElement, index: number, ctx: { css: string[]; design: RenderDesign }): string {
+function renderSection(sec: ElxElement, index: number, ctx: { css: string[]; design: RenderDesign; anims?: Set<string>; customAnims?: string[] }): string {
   ctx.css.push(sectionCss(sec));
   const cols = sec.elements.map((c) => renderColumn(c, sec.elements.length, ctx)).join('');
   const gap = String(sec.settings.gap || 'default');
   const inner = sec.isInner === true;
   const id = inner ? '' : ` id="elx-sec-${index}"`;
-  return `<section${id} class="elementor-section ${inner ? 'elementor-inner-section' : 'elementor-top-section'} elementor-element elementor-element-${sec.id} elementor-section-boxed elementor-section-height-default"><div class="elementor-container elementor-column-gap-${gap}">${cols}</div></section>`;
+  const mo = motionOf(sec.settings, ctx);
+  const st = mo.style ? ` style="${mo.style}"` : '';
+  return `<section${id} class="elementor-section ${inner ? 'elementor-inner-section' : 'elementor-top-section'} elementor-element elementor-element-${sec.id}${mo.cls} elementor-section-boxed elementor-section-height-default"${st}><div class="elementor-container elementor-column-gap-${gap}">${cols}</div></section>`;
 }
 
 function containerCss(el: ElxElement): string {
@@ -656,25 +775,73 @@ function containerCss(el: ElxElement): string {
   if (bg) rules.push(`${sel}{${bg}}`);
   const pad = dimCss(s.padding as Dim);
   if (pad && pad !== '0px 0px 0px 0px') rules.push(`${sel}{padding:${pad}}`);
+  rules.push(...responsiveCss(sel, s, { pad: '' }));
   return rules.filter(Boolean).join('\n');
 }
 
-function renderContainer(el: ElxElement, ctx: { css: string[]; design: RenderDesign }, index = 0): string {
+function renderContainer(el: ElxElement, ctx: { css: string[]; design: RenderDesign; anims?: Set<string>; customAnims?: string[] }, index = 0): string {
   ctx.css.push(containerCss(el));
   const children = el.elements.map((c) => renderElement(c, ctx)).join('');
   const top = el.isInner === false;
   const dir = String(el.settings.flex_direction || 'column');
-  const cls = `e-con ${top ? 'e-parent e-con-boxed' : 'e-child e-con-full'} elementor-element elementor-element-${el.id}`;
+  const mo = motionOf(el.settings, ctx);
+  const cls = `e-con ${top ? 'e-parent e-con-boxed' : 'e-child e-con-full'} elementor-element elementor-element-${el.id}${mo.cls}`;
   const id = top ? ` id="elx-sec-${index}"` : '';
+  const st = mo.style ? ` style="${mo.style}"` : '';
   const inner = top ? `<div class="e-con-inner">${children}</div>` : children;
-  return `<div${id} class="${cls}" data-flex-direction="${dir}">${inner}</div>`;
+  return `<div${id} class="${cls}" data-flex-direction="${dir}"${st}>${inner}</div>`;
 }
 
-function renderElement(el: ElxElement, ctx: { css: string[]; design: RenderDesign }, index = 0): string {
+// Where each widget type's responsive font-size override must land.
+const TEXT_SEL: Record<string, string> = {
+  heading: ' .elementor-heading-title',
+  'text-editor': ' .elementor-widget-container',
+  button: ' .elementor-button',
+  'nav-menu': ' .elementor-nav-menu a',
+  'icon-list': ' .elementor-icon-list-text',
+  'icon-box': ' .elementor-icon-box-description',
+  blockquote: ' blockquote',
+  counter: ' .elementor-widget-container',
+};
+
+// Genuine Elementor responsive settings + engine-discovered narrow-viewport
+// diffs, painted as media queries against the element's own id selector.
+function responsiveCss(sel: string, s: ElxSettings, targets: { pad?: string; text?: string; width?: string }): string[] {
+  const out: string[] = [];
+  const selQ = (q: string) => (q ? sel + q : sel);
+  if (s.hide_mobile === 'yes') out.push(`@media(max-width:767px){${sel}{display:none !important}}`);
+  else if (s.hide_tablet === 'yes') out.push(`@media(min-width:768px) and (max-width:1024px){${sel}{display:none !important}}`);
+  const fsM = s.typography_font_size_mobile as Dim | undefined;
+  const fsT = s.typography_font_size_tablet as Dim | undefined;
+  const fsEx = num(s._elx_mobile_font_size);
+  if (targets.text && fsM && fsM.size) out.push(`@media(max-width:767px){${selQ(targets.text)}{font-size:${fsM.size}${fsM.unit || 'px'} !important}}`);
+  else if (targets.text && fsEx) out.push(`@media(max-width:767px){${selQ(targets.text)}{font-size:${fsEx}px !important}}`);
+  if (targets.text && fsT && fsT.size) out.push(`@media(min-width:768px) and (max-width:1024px){${selQ(targets.text)}{font-size:${fsT.size}${fsT.unit || 'px'} !important}}`);
+  const padM = dimCss(s.padding_mobile as Dim);
+  const padT = dimCss(s.padding_tablet as Dim);
+  if (targets.pad && padM && padM !== '0px 0px 0px 0px') out.push(`@media(max-width:767px){${selQ(targets.pad)}{padding:${padM} !important}}`);
+  if (targets.pad && padT && padT !== '0px 0px 0px 0px') out.push(`@media(min-width:768px) and (max-width:1024px){${selQ(targets.pad)}{padding:${padT} !important}}`);
+  if (targets.width && s._elx_mobile_full === 'yes') out.push(`@media(max-width:767px){${selQ(targets.width)}{width:100% !important}}`);
+  return out;
+}
+
+// Inject an extra class + inline style into the root tag of rendered markup.
+function decorate(html: string, s: ElxSettings, ctx: { css: string[]; design: RenderDesign; anims?: Set<string>; customAnims?: string[] }): string {
+  const m = motionOf(s, ctx);
+  if (!m.cls && !m.style) return html;
+  return html.replace(/^(<\w+)\s+class="([^"]*)"/, (_mo, tag: string, cls: string) => {
+    const merged = m.cls ? `${cls}${m.cls}` : cls;
+    return `${tag} class="${merged}"${m.style ? ` style="${m.style}"` : ''}`;
+  });
+}
+
+function renderElement(el: ElxElement, ctx: { css: string[]; design: RenderDesign; anims?: Set<string>; customAnims?: string[] }, index = 0): string {
   if (el.elType === 'section') return renderSection(el, index, ctx);
   if (el.elType === 'container') return renderContainer(el, ctx, index);
   if (el.elType === 'column') return renderColumn(el, 1, ctx);
-  return renderWidget(el, ctx);
+  const sel = `.elementor-element-${el.id}`;
+  ctx.css.push(...responsiveCss(sel, el.settings, { text: TEXT_SEL[el.widgetType || ''], width: '' }));
+  return decorate(renderWidget(el, ctx), el.settings, ctx);
 }
 
 /* ------------------------------------------------------------- document */
@@ -703,10 +870,19 @@ const SYNC_SNIPPET = `(function(){
 
 export function renderElementorDocument(elementor: { title?: string; content?: ElxElement[] }, design: RenderDesign = {}): string {
   const primary = design.primary || '#3644EE';
-  const ctx = { css: [] as string[], design };
+  const ctx = { css: [] as string[], design, anims: new Set<string>(), customAnims: [] as string[] };
 
   const content = Array.isArray(elementor.content) ? elementor.content : [];
   const body = content.map((el, i) => renderElement(el, ctx, i)).join('\n');
+
+  // only the keyframes actually referenced are embedded (animations preserved,
+  // stylesheet stays small, names are never invented)
+  const frames = [...ctx.anims]
+    .map((n) => ANIM_FRAMES[n])
+    .filter(Boolean)
+    .join('\n');
+  const custom = ctx.customAnims.join('\n');
+  const motionBlock = frames || custom ? `<style id="elx-anim">${MOTION_CSS}\n${frames}\n${custom}</style>` : `<style>${MOTION_CSS}</style>`;
 
   const fonts = new Set<string>();
   (design.fonts || []).forEach((f) => {
@@ -729,11 +905,13 @@ export function renderElementorDocument(elementor: { title?: string; content?: E
 <base target="_blank">
 ${fontLink}
 <style>${baseCss(primary)}</style>
+${motionBlock}
 <style id="elx-dynamic">${ctx.css.join('\n')}</style>
 </head>
 <body class="elementor elementor-page">
 ${body}
 <script>${SYNC_SNIPPET}</script>
+<script>${REVEAL_SNIPPET}</script>
 </body>
 </html>`;
 }

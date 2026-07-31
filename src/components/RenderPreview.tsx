@@ -259,6 +259,70 @@ function Widget({ b, scale, primary }: { b: Extract<PreviewBlock, { kind: 'widge
         </div>
       );
 
+    case 'counter': {
+      const m = String(p.text || '').match(/^\s*([$€£₹]?\s*\d[\d,.\s]*[kKmMx%+]*)[\s–—-]*(.*)$/);
+      const value = m ? m[1].trim() : p.text || '';
+      const label = m ? (m[2] || '').trim() : '';
+      return (
+        <div style={{ textAlign: 'center', width: '100%' }}>
+          <div style={{ fontSize: s(30), fontWeight: 800, lineHeight: 1.1, color: p.color || 'inherit' }}>{value}</div>
+          {label && <div style={{ marginTop: s(4), fontSize: s(12), opacity: 0.75 }}>{label}</div>}
+        </div>
+      );
+    }
+
+    case 'progress': {
+      const m = String(p.text || '').match(/([\d.]+)\s*%/);
+      const pct = m ? Math.max(2, Math.min(100, parseFloat(m[1]))) : 60;
+      const label = String(p.text || '').replace(/[\d.]+\s*%/, '').trim();
+      return (
+        <div style={{ width: '100%' }}>
+          {label && <div style={{ fontSize: s(12), fontWeight: 600, marginBottom: s(4) }}>{label}</div>}
+          <div style={{ width: '100%', height: s(8), borderRadius: s(4), background: 'rgba(128,128,128,.25)', overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: primary }} />
+          </div>
+          <div style={{ marginTop: s(3), fontSize: s(10), opacity: 0.6 }}>{Math.round(pct)}%</div>
+        </div>
+      );
+    }
+
+    case 'toggle':
+    case 'accordion':
+      return (
+        <div style={{ width: '100%', border: '1px solid rgba(128,128,128,.35)', borderRadius: s(6), padding: `${s(9)}px ${s(12)}px` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: s(8), fontSize: s(13), fontWeight: 600 }}>
+            <span style={{ color: primary, fontSize: s(10) }}>▾</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(p.text || 'Toggle item').slice(0, 90)}</span>
+          </div>
+        </div>
+      );
+
+    case 'tabs': {
+      const tabItems = (p.items as { text: string }[] | string[] | undefined) || [];
+      if (!tabItems.length && p.text) return wrap(<p style={{ fontSize: s(13), opacity: 0.85, margin: 0 }}>{p.text.slice(0, 260)}</p>);
+      return (
+        <div style={{ width: '100%' }}>
+          <div style={{ display: 'flex', gap: s(6), flexWrap: 'wrap' }}>
+            {tabItems.slice(0, 4).map((t, i) => (
+              <span
+                key={i}
+                style={{
+                  padding: `${s(5)}px ${s(10)}px`,
+                  fontSize: s(11),
+                  fontWeight: 600,
+                  borderRadius: s(4),
+                  background: i === 0 ? primary : 'rgba(128,128,128,.18)',
+                  color: i === 0 ? '#fff' : 'inherit',
+                }}
+              >
+                {typeof t === 'string' ? t : t.text}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     case 'divider':
       return <hr style={{ width: '100%', border: 0, borderTop: '1px solid rgba(128,128,128,.35)', margin: 0 }} />;
 

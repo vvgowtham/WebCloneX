@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BuildRight Construction</title>
+<meta name="description" content="Bootstrap-flavoured archetype: navbar, jumbotron, card deck, footer.">
+<style>
+  :root { --bs-primary: #f59e0b; --bs-dark: #1f2937; }
+  body { margin: 0; font-family: system-ui, sans-serif; color: #374151; font-size: 16px; line-height: 1.5; background: #fff; }
+  img { max-width: 100%; height: auto; }
+  .container { max-width: 1140px; margin: 0 auto; padding: 0 15px; }
+  .d-flex { display: flex; }
+  .justify-content-between { justify-content: space-between; }
+  .align-items-center { align-items: center; }
+  .navbar { background: var(--bs-dark); padding: 14px 0; }
+  .navbar-brand { color: #fff; font-size: 22px; font-weight: 800; text-decoration: none; }
+  .navbar-nav { display: flex; list-style: none; margin: 0; padding: 0; gap: 24px; }
+  .nav-link { color: #d1d5db; text-decoration: none; font-size: 15px; }
+  .nav-link:hover { color: var(--bs-primary); }
+  .jumbotron { background: linear-gradient(rgba(17,24,39,.72), rgba(17,24,39,.72)), url('https://images.example.com/hero-construction.jpg'); background-size: cover; background-position: center; color: #fff; padding: 110px 0 90px; text-align: center; }
+  .jumbotron h1 { font-size: 46px; margin: 0 0 14px; font-weight: 800; }
+  .jumbotron p { font-size: 19px; max-width: 720px; margin: 0 auto 26px; }
+  .btn { display: inline-block; background: var(--bs-primary); color: #1f2937; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; }
+  .row { display: flex; flex-wrap: wrap; margin: 0 -15px; }
+  .col-md-4 { flex: 0 0 33.333%; max-width: 33.333%; padding: 0 15px; box-sizing: border-box; }
+  .services { padding: 70px 0; }
+  .services .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 26px; box-shadow: 0 6px 20px rgba(17,24,39,.06); }
+  .card h3 { margin: 0 0 8px; font-size: 20px; color: #111827; }
+  .card p { margin: 0 0 14px; color: #6b7280; font-size: 14.5px; }
+  .card .card-link { color: var(--bs-primary); font-weight: 600; text-decoration: none; font-size: 14px; }
+  .section-title { text-align: center; margin: 0 0 8px; font-size: 32px; color: #111827; }
+  .section-sub { text-align: center; color: #6b7280; margin: 0 auto 40px; max-width: 640px; }
+  .projects { background: #f3f4f6; padding: 70px 0; }
+  .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .project-grid figure { margin: 0; position: relative; border-radius: 10px; overflow: hidden; }
+  .project-grid img { width: 100%; height: 210px; object-fit: cover; display: block; }
+  .project-grid figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px; background: rgba(17,24,39,.78); color: #fff; font-size: 14px; font-weight: 600; }
+  footer { background: var(--bs-dark); color: #9ca3af; padding: 34px 0; text-align: center; font-size: 14px; }
+  footer a { color: #f59e0b; text-decoration: none; }
+  @media (max-width: 768px) {
+    .row { flex-direction: column; }
+    .col-md-4 { max-width: 100%; flex: none; }
+    .project-grid { grid-template-columns: 1fr; }
+    .jumbotron h1 { font-size: 30px; }
+    .navbar-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="container d-flex justify-content-between align-items-center">
+    <a class="navbar-brand" href="/">BuildRight</a>
+    <ul class="navbar-nav">
+      <li><a class="nav-link" href="/">Home</a></li>
+      <li><a class="nav-link" href="#services">Services</a></li>
+      <li><a class="nav-link" href="#projects">Projects</a></li>
+      <li><a class="nav-link" href="#about">About</a></li>
+      <li><a class="nav-link" href="#contact">Contact</a></li>
+    </ul>
+  </div>
+</nav>
+
+<section class="jumbotron">
+  <div class="container">
+    <h1>We Build With Precision</h1>
+    <p>Commercial and residential construction with 25 years of on-time delivery, certified crews and a safety-first culture.</p>
+    <a class="btn" href="#contact">Get a Free Quote</a>
+  </div>
+</section>
+
+<section class="services" id="services">
+  <div class="container">
+    <h2 class="section-title">Our Services</h2>
+    <p class="section-sub">From ground-up builds to renovations, our teams deliver certified quality at every stage.</p>
+    <div class="row">
+      <div class="col-md-4">
+        <div class="card">
+          <h3>General Contracting</h3>
+          <p>End-to-end project management with transparent budgets, vetted subcontractors and weekly reporting.</p>
+          <a class="card-link" href="#contact">Request bid →</a>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <h3>Design &amp; Build</h3>
+          <p>In-house architects and engineers streamline approvals and reduce change orders dramatically.</p>
+          <a class="card-link" href="#contact">See process →</a>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <h3>Renovations</h3>
+          <p>Kitchens, offices and structural retrofits executed with minimal downtime for occupants.</p>
+          <a class="card-link" href="#contact">Plan renovation →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="projects" id="projects">
+  <div class="container">
+    <h2 class="section-title">Featured Projects</h2>
+    <p class="section-sub">A snapshot of recent deliveries across the region.</p>
+    <div class="project-grid">
+      <figure><img src="https://polytechpvcprofile.com/wp-content/uploads/2025/03/1-1.jpg" alt="Skyline Offices"><figcaption>Skyline Offices</figcaption></figure>
+      <figure><img src="https://polytechpvcprofile.com/wp-content/uploads/2025/03/2-1.jpg" alt="Maple Residences"><figcaption>Maple Residences</figcaption></figure>
+      <figure><img src="https://polytechpvcprofile.com/wp-content/uploads/2025/03/4.0.jpg" alt="Harbor Mall"><figcaption>Harbor Mall</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>© 2026 BuildRight Construction · <a href="#contact">Contact us</a> · <a href="#privacy">Privacy</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -2,9 +2,17 @@
 // End-to-end local test for the WebClonerELX pipeline:
 //   fixture site  →  cloneUrl()  →  Elementor JSON  →  rendered HTML
 //
-// Covers BOTH extraction paths:
+// Covers extraction paths AND site archetypes (smoke testing):
 //   1. native-elementor  (scripts/fixtures/site)
 //   2. generic-dom       (scripts/fixtures/generic)
+//   3. bootstrap         archetype (navbar + card deck + grid projects)
+//   4. corporate         archetype (counters, progress, form, AOS, grid)
+//   5. blog              archetype (article, table, details FAQ, srcset)
+//   6. spa               archetype (deep #root, utility CSS, pricing)
+//
+// Every fixture runs the universal smoke checklist:
+//   ✓ no blank page   ✓ DOM parsed        ✓ JSON valid
+//   ✓ images imported ✓ pipeline logged   ✓ errors recovered, never thrown
 //
 // Usage: node scripts/test-local.mjs
 
@@ -15,7 +23,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIRS = [path.join(ROOT, 'scripts/fixtures/site'), path.join(ROOT, 'scripts/fixtures/generic')];
+const DIRS = [
+  path.join(ROOT, 'scripts/fixtures/site'),
+  path.join(ROOT, 'scripts/fixtures/generic'),
+  path.join(ROOT, 'scripts/fixtures/smoke'),
+];
 const OUT = process.env.ELX_OUT || '/tmp';
 const BUNDLE = path.join(OUT, 'elx-renderer-bundle.mjs');
 
@@ -81,6 +93,34 @@ function collectAll(content, acc = []) {
   return acc;
 }
 
+/* ---- universal smoke checklist (runs for EVERY fixture/mode) ---------- */
+
+const VALID_ELTYPES = new Set(['section', 'column', 'widget', 'container']);
+
+function smokeCheck(result, html, fx) {
+  const all = collectAll(result.elementor.content);
+  const widgets = all.filter((e) => e.elType === 'widget');
+  check('SMOKE no blank page (sections + widgets > 0)', result.sections.length > 0 && widgets.length > 0);
+  check(
+    'SMOKE DOM parsed into content',
+    result.stats.htmlKb > 0 && result.elementor.content.length > 0
+  );
+  check(
+    'SMOKE Elementor JSON structurally valid',
+    all.every((e) => VALID_ELTYPES.has(e.elType)) &&
+      widgets.every((w) => typeof w.widgetType === 'string' && w.widgetType.length >= 2) &&
+      all.every((e) => typeof e.id === 'string' && e.id.length >= 5) &&
+      all.every((e) => e.settings === undefined || (typeof e.settings === 'object' && e.settings !== null))
+  );
+  check('SMOKE images imported', (result.stats.images || 0) >= (fx.minImgs ?? 0), `${result.stats.images} < ${fx.minImgs ?? 0}`);
+  check('SMOKE pipeline log emitted', Array.isArray(result.log) && result.log.length >= 3 && /Opening/.test(result.log.join(' ')));
+  check('SMOKE error recovery state exposed', Array.isArray(result.errors));
+  check('SMOKE fidelity reported', !!result.fidelity && result.fidelity.score >= 40 && result.fidelity.textCoverage >= 30, JSON.stringify(result.fidelity && result.fidelity.score));
+  check('SMOKE render is a full document', /^<!DOCTYPE html>/.test(html) && html.includes('</html>'));
+  const giantBlob = widgets.find((w) => typeof w.settings?.html === 'string' && w.settings.html.length > 20000);
+  check('SMOKE no raw body dump as html blob', !giantBlob);
+}
+
 /* ---- native elementor fixture assertions ---------------------------- */
 
 function assertElementorFixture(result, html) {
@@ -120,8 +160,6 @@ function assertElementorFixture(result, html) {
 
   check('nav sr-only label deduplicated', items && items[0].text === 'Home', items && items[0].text);
 
-  /* ---- turn-2: hero slider / premium cards / gallery / decor overlays ---- */
-
   const carousels = collectWidgets(result.elementor.content, 'image-carousel');
   const heroCar = carousels.find((c) => (c.settings.carousel || []).some((x) => /4\.0\.jpg/.test(x.url || '')));
   check('hero carousel keeps one-slide data-settings', !!heroCar && heroCar.settings.slides_to_show === '1', heroCar && heroCar.settings.slides_to_show);
@@ -153,7 +191,6 @@ function assertElementorFixture(result, html) {
   check('feature card column keeps radius 16', !!cardCol);
   check('feature card column keeps white background', !!cardCol && cardCol.settings.background_color === '#FFFFFF', cardCol && cardCol.settings.background_color);
 
-  check('rendered html is a full document', /^<!DOCTYPE html>/.test(html) && html.includes('</html>'));
   check('gallery rendered as elx-gallery grid', html.includes('elx-gallery'));
   check('card chrome rendered (radius 16)', html.includes('border-radius:16px'));
   check('nav typography rendered (15px)', /\.elementor-nav-menu a\{[^}]*font-size:15px/.test(html));
@@ -162,6 +199,7 @@ function assertElementorFixture(result, html) {
   check('product crop height rendered (230px)', html.includes('height:230px'));
   check('gallery rendered without invented captions', !html.includes('<figcaption>Work 1</figcaption>'));
   check('decor / whatsapp never rendered', !html.includes('decor-phone') && !html.includes('wa.me'));
+
   check('render contains elx-sec anchors', html.includes('id="elx-sec-0"') && html.includes(`id="elx-sec-${result.sections.length - 1}"`));
   check('topbar green background rendered', html.includes('background-color:#5CB431'));
   check('topbar text rendered white', html.includes('.elementor-icon-list-text{color:#FFFFFF}'));
@@ -216,6 +254,101 @@ function assertGenericFixture(result, html) {
   check('render keeps brand orange button', html.includes('background-color:#C2410C'));
 }
 
+/* ---- smoke archetype assertions -------------------------------------- */
+
+function assertBootstrap(result, html) {
+  console.log(`  sections=${result.stats.sections} widgets=${result.stats.widgets} extraction=${result.stats.extraction}`);
+  const nav = collectWidgets(result.elementor.content, 'nav-menu')[0];
+  check('BOOT navbar → nav-menu', !!nav && (nav.settings._elx_menu_items || []).length === 5, JSON.stringify(nav && (nav.settings._elx_menu_items || []).length));
+  const heads = collectWidgets(result.elementor.content, 'heading');
+  check('BOOT hero h1 captured', heads.some((h) => /We Build With Precision/.test(String(h.settings.title))));
+  const buttons = collectWidgets(result.elementor.content, 'button');
+  check('BOOT primary button captured', buttons.some((b) => /Free Quote/.test(String(b.settings.text))));
+  // card deck = three service cards preserved as columns of a row
+  const svcTexts = ['General Contracting', 'Design & Build', 'Renovations'];
+  check(
+    'BOOT card deck preserved (all 3 cards)',
+    svcTexts.every((t) => JSON.stringify(result.elementor.content).includes(t.split(' ')[0]))
+  );
+  const json = JSON.stringify(result.elementor.content);
+  check('BOOT project overlay captions preserved', json.includes('Skyline Offices') && json.includes('Harbor Mall'));
+  check('BOOT mobile nav hidden setting emitted', JSON.stringify(result.elementor.content).includes('hide_mobile'));
+  check('BOOT jumbotron background image kept', result.sections.some((sec) => sec.background.image), JSON.stringify(result.sections.map((x) => x.background.image).filter(Boolean)));
+  check('BOOT render shows hero', html.includes('We Build With Precision'));
+}
+
+function assertCorporate(result, html) {
+  console.log(`  sections=${result.stats.sections} widgets=${result.stats.widgets} extraction=${result.stats.extraction}`);
+  const json = JSON.stringify(result.elementor.content);
+  const counters = collectWidgets(result.elementor.content, 'counter');
+  check('CORP counters detected (>=3)', counters.length >= 3, String(counters.length));
+  check('CORP counter values right', counters.some((c) => Number(c.settings.ending_number) === 1200));
+  const progress = collectWidgets(result.elementor.content, 'progress');
+  check('CORP progress bars detected (>=3)', progress.length >= 3, String(progress.length));
+  check('CORP progress percent kept', progress.some((pr) => pr.settings.percent && pr.settings.percent.size === 92));
+  const forms = collectWidgets(result.elementor.content, 'form');
+  const form = forms.find((f) => (f.settings.form_fields || []).length >= 4);
+  check('CORP form converted with fields', !!form, String(forms.length));
+  check('CORP form labels preserved', !!form && form.settings.form_fields.some((f) => /Full name/.test(f.field_label)));
+  check('CORP required fields marked', !!form && form.settings.form_fields.filter((f) => f.required === 'true').length >= 2);
+  check('CORP select options preserved', !!form && form.settings.form_fields.some((f) => f.field_type === 'select' && /51–200/.test(f.field_options)));
+  check('CORP hidden field noted', !!form && Number(form.settings._elx_hidden_fields) >= 1, JSON.stringify(form && form.settings._elx_hidden_fields));
+  const animated = collectAll(result.elementor.content).filter((e) => e.settings && (e.settings._animation || e.settings._elx_custom_anim));
+  check('CORP animations preserved on widgets/sections', animated.length >= 2, String(animated.length));
+  check('CORP custom keyframes carried', json.includes('_elx_custom_anim_css') || animated.some((a) => a.settings._animation === 'riseFade' || a.settings._animation === 'fadeInUp' || a.settings._animation === 'zoomIn'));
+  const transitions = collectAll(result.elementor.content).filter((e) => e.settings && e.settings._elx_transition);
+  check('CORP transitions preserved', transitions.length >= 1, String(transitions.length));
+  const social = collectWidgets(result.elementor.content, 'social-icons');
+  check('CORP social icons converted', social.length >= 1 && (social[0].settings.social_icon_list || []).length >= 4, String(social.length));
+  check('CORP hero animation rendered (AOS→fadeInUp or custom)', html.includes('@keyframes fadeInUp') || html.includes('@keyframes riseFade'));
+  check('CORP reveal script embedded', html.includes('IntersectionObserver'));
+  const rows = [];
+  (function rr(bl) {
+    (bl || []).forEach((b) => {
+      if (b.kind === 'row') {
+        rows.push(b);
+        rr(b.columns.flatMap((c) => c.blocks || []));
+      }
+    });
+  })(result.sections.flatMap((sec) => (sec.columns || []).flatMap((c) => c.blocks || [])));
+  check('CORP grid services stay 3 columns', result.sections.some((sec) => sec.columnCount === 3) || rows.some((r) => r.columns.length === 3));
+}
+
+function assertBlog(result, html) {
+  console.log(`  sections=${result.stats.sections} widgets=${result.stats.widgets} extraction=${result.stats.extraction}`);
+  const json = JSON.stringify(result.elementor.content);
+  const toggles = collectWidgets(result.elementor.content, 'toggle');
+  check('BLOG FAQ details → toggle widgets (>=3)', toggles.length >= 3, String(toggles.length));
+  check('BLOG toggle keeps question text', toggles.some((t) => /best season/.test(String((t.settings.tabs || [])[0]?.tab_title || ''))));
+  const tables = collectWidgets(result.elementor.content, 'html').filter((w) => /<table/i.test(String(w.settings.html)));
+  check('BLOG itinerary table preserved', tables.length >= 1);
+  check('BLOG divider from hr', (result.stats.byType.divider || 0) >= 1);
+  check('BLOG blockquote preserved', collectWidgets(result.elementor.content, 'blockquote').length >= 1);
+  const imgs = collectWidgets(result.elementor.content, 'image');
+  const spiti = imgs.find((i) => (i.settings.image || {}).url && /Benner-2|4\.0/.test(i.settings.image.url));
+  check('BLOG picture srcset preserved', !!spiti && typeof spiti.settings._elx_srcset === 'string' && /1200w/.test(spiti.settings._elx_srcset));
+  check('BLOG lazy loading preserved', !!spiti && spiti.settings._elx_lazy === 'yes');
+  const forms = collectWidgets(result.elementor.content, 'form');
+  check('BLOG newsletter form converted', forms.some((f) => (f.settings.form_fields || []).some((x) => x.field_type === 'email' && x.required === 'true')));
+  check('BLOG aside links kept', json.includes('Meghalaya'));
+  check('BLOG render shows FAQ questions', html.includes('best season to visit'));
+  check('BLOG aside layout kept (2 cols)', result.sections.some((sec) => sec.columnCount === 2), JSON.stringify(result.sections.map((x) => x.columnCount)));
+}
+
+function assertSpa(result, html) {
+  console.log(`  sections=${result.stats.sections} widgets=${result.stats.widgets} extraction=${result.stats.extraction}`);
+  const json = JSON.stringify(result.elementor.content);
+  check('SPA deep #root content segmented', result.sections.length >= 4, String(result.sections.length));
+  check('SPA hero heading survives', json.includes('Ship product feedback loops'));
+  const buttons = collectWidgets(result.elementor.content, 'button');
+  check('SPA CTA buttons captured (>=2)', buttons.length >= 2, String(buttons.length));
+  check('SPA pricing values kept', json.includes('$49') && json.includes('$0'));
+  check('SPA testimonial quote kept', json.includes('replaced four tools'));
+  check('SPA feature cards preserved', json.includes('Close the loop') && json.includes('Prioritise'));
+  check('SPA AOS animations converted', collectAll(result.elementor.content).some((e) => e.settings && (e.settings._animation === 'zoomIn' || e.settings._animation === 'fadeInUp')));
+  check('SPA render shows pricing', html.includes('$49'));
+}
+
 /* ---- main ------------------------------------------------------------- */
 
 const server = http.createServer(serveFile);
@@ -230,14 +363,18 @@ execSync(
 const { renderElementorDocument } = await import(pathToFileURL(BUNDLE).href);
 
 const fixtures = [
-  { url: `http://127.0.0.1:${PORT}/`, name: 'polytech-like', fn: assertElementorFixture },
-  { url: `http://127.0.0.1:${PORT}/generic.html`, name: 'generic', fn: assertGenericFixture },
+  { url: `http://127.0.0.1:${PORT}/`, name: 'polytech-like', fn: assertElementorFixture, minImgs: 8 },
+  { url: `http://127.0.0.1:${PORT}/generic.html`, name: 'generic', fn: assertGenericFixture, minImgs: 2 },
+  { url: `http://127.0.0.1:${PORT}/bootstrap.html`, name: 'bootstrap', fn: assertBootstrap, minImgs: 3 },
+  { url: `http://127.0.0.1:${PORT}/corporate.html`, name: 'corporate', fn: assertCorporate, minImgs: 0 },
+  { url: `http://127.0.0.1:${PORT}/blog.html`, name: 'blog', fn: assertBlog, minImgs: 2 },
+  { url: `http://127.0.0.1:${PORT}/spa.html`, name: 'spa', fn: assertSpa, minImgs: 0 },
 ];
 
 for (const fx of fixtures) {
   for (const mode of ['section', 'container']) {
     console.log(`\n== ${fx.name} (mode=${mode}) ==`);
-    const result = await cloneUrl(fx.url, { mode, maxSections: 24 });
+    const result = await cloneUrl(fx.url, { mode, maxSections: 30, browser: false });
     check('clone ok', result.ok);
     const topTypes = result.elementor.content.map((e) => e.elType);
     check(
@@ -249,9 +386,11 @@ for (const fx of fixtures) {
     check('rendered page remains scrollable (no overflow lock on body)', !/\.elementor\{[^}]*overflow:\s*hidden/.test(html));
     if (mode === 'section') check('section markup used', html.includes('elementor-container elementor-column-gap'));
     else check('container markup used', html.includes('e-con e-parent'));
+    smokeCheck(result, html, fx);
     fx.fn(result, html);
     createWriteStream(path.join(OUT, `elx-render-${fx.name}-${mode}.html`)).end(html);
-    createWriteStream(path.join(OUT, `elx-result-${fx.name}-${mode}.json`)).end(JSON.stringify(result, null, 2));
+    createWriteStream(path.join(OUT, `elx-result-${fx.name}-${mode}.json`)).end(JSON.stringify(result.log && { log: result.log, errors: result.errors, fidelity: result.fidelity }, null, 2));
+    console.log(`  fidelity score ${result.fidelity.score}/100 · text coverage ${result.fidelity.textCoverage}% · errors ${result.errors.length}`);
     console.log(`  wrote ${OUT}/elx-render-${fx.name}-${mode}.html (${Math.round(html.length / 1024)} KB)`);
   }
 }
