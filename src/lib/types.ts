@@ -26,6 +26,9 @@ export type WidgetPreview = {
   height?: number;
   widget?: string;
   width?: { mode: string; value?: number };
+  captions?: string[];
+  slideHeight?: number | null;
+  opacity?: number | null;
 };
 
 export type PreviewBlock =
@@ -64,8 +67,27 @@ export type CloneSection = {
   contentWidth: number;
   gap: number;
   alignItems: string;
+  /** detected layout engine: grid | flex-row | flex-column | positioned | float | block */
+  layout?: string;
   widgetCount: number;
   widgets: SectionWidget[];
+};
+
+export type PipelineError = {
+  stage: string;
+  node: string;
+  reason: string;
+};
+
+export type FidelityReport = {
+  textCoverage: number;
+  animationsKept: number;
+  imagesKept: number;
+  sectionsBuilt: number;
+  widgetsBuilt: number;
+  errorsRecovered: number;
+  pipeline: string;
+  score: number;
 };
 
 export type CloneResult = {
@@ -106,10 +128,16 @@ export type CloneResult = {
     cssRules: number;
     extraction: string;
     durationMs: number;
+    errors?: number;
+    fidelityScore?: number;
   };
   sections: CloneSection[];
   assets: { type: string; url: string; alt: string }[];
   elementor: Record<string, unknown>;
+  /** timestamped pipeline log lines, e.g. "[+1.2s] Opening website…" */
+  log?: string[];
+  errors?: PipelineError[];
+  fidelity?: FidelityReport;
 };
 
 export type JobRow = {

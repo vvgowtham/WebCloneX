@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   ChevronRight, Columns3, Image as ImageIcon, Heading1, Type, MousePointerClick, List, Minus, Film, Map, Code2,
-  FileInput, Quote, Table2, Menu, Box, GalleryHorizontal, Share2, MoveVertical, Rows3,
+  FileInput, Quote, Table2, Menu, Box, GalleryHorizontal, Share2, MoveVertical, Rows3, Hash, BarChart3, ListCollapse, SquareStack,
 } from 'lucide-react';
 import type { CloneSection, PreviewBlock, PreviewColumn } from '../lib/types';
 import { Tag } from './Bits';
@@ -15,6 +15,7 @@ const ICONS: Record<string, typeof Type> = {
   'nav-menu': Menu,
   'icon-box': Box,
   'image-carousel': GalleryHorizontal,
+  'image-gallery': ImageIcon,
   'loop-carousel': GalleryHorizontal,
   'social-icons': Share2,
   divider: Minus,
@@ -26,6 +27,12 @@ const ICONS: Record<string, typeof Type> = {
   shortcode: FileInput,
   blockquote: Quote,
   table: Table2,
+  counter: Hash,
+  progress: BarChart3,
+  'progress-bar': BarChart3,
+  toggle: ListCollapse,
+  accordion: ListCollapse,
+  tabs: SquareStack,
 };
 
 const TYPE_TONE: Record<string, 'volt' | 'cyan' | 'magenta' | 'amber' | 'edge'> = {
@@ -43,7 +50,8 @@ const TYPE_TONE: Record<string, 'volt' | 'cyan' | 'magenta' | 'amber' | 'edge'> 
 function detailOf(b: Extract<PreviewBlock, { kind: 'widget' }>) {
   const p = b.preview || { kind: '' };
   if (p.kind === 'image') return p.url ? p.url.split('/').pop() || p.url : '';
-  if (p.kind === 'carousel') return `${(p.images || []).length} slides`;
+  if (p.kind === 'carousel') return `${(p.images || []).length} slides${p.slideHeight ? ` · ${Math.round(p.slideHeight)}px tall` : ''}`;
+  if (p.kind === 'gallery') return `${(p.images || []).length} images (grid)`;
   if (p.kind === 'menu') return (p.items || []).slice(0, 5).map((i) => (typeof i === 'string' ? i : i.text)).join(' · ');
   if (p.kind === 'list') return (p.items || []).slice(0, 4).map((i) => (typeof i === 'string' ? i : i.text)).join(' · ');
   if (p.kind === 'button') return `${p.text} → ${p.url ? p.url.replace(/^https?:\/\//, '').slice(0, 40) : '#'}`;
@@ -136,6 +144,7 @@ export default function StructureTree({ sections }: { sections: CloneSection[] }
               <ChevronRight size={15} className={`shrink-0 text-dim transition-transform ${isOpen ? 'rotate-90' : ''}`} />
               <span className="font-display text-sm font-semibold">{s.name}</span>
               <Tag tone={TYPE_TONE[s.type] || 'edge'}>{s.type}</Tag>
+              {s.layout && s.layout !== 'block' && <Tag tone="edge">{s.layout}</Tag>}
               <span className="ml-auto hidden items-center gap-3 font-mono text-[11px] text-dim sm:flex">
                 <span className="flex items-center gap-1">
                   <Columns3 size={12} /> {s.columnCount}

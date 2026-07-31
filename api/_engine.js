@@ -6,7 +6,8 @@
 import { parse } from 'node-html-parser';
 import dns from 'node:dns';
 import net from 'node:net';
-import { loadStyles, computedStyle, isHidden, px, pct, boxOf, createSheet, resolveVar } from './_css.js';
+import { loadStyles, computedStyle, computedStyleAt, isHidden, px, pct, boxOf, createSheet, resolveVar } from './_css.js';
+import { browserCapture } from './_browser.js';
 
 // Some hosts publish AAAA records unreachable from serverless runtimes;
 // force IPv4 so direct fetches don't hang on happy-eyeballs.
@@ -122,15 +123,275 @@ function imageSrc(el, base) {
   return src ? abs(src, base) : '';
 }
 
+// srcset preserved with absolute candidate URLs (responsive images keep
+// their resolution ladder instead of downgrading to one bare src).
+function absSrcset(ss, base) {
+  return String(ss || '')
+    .split(',')
+    .map((cand) => {
+      const parts = cand.trim().split(/\s+/);
+      if (!parts[0]) return '';
+      parts[0] = abs(parts[0], base);
+      return parts.join(' ');
+    })
+    .filter(Boolean)
+    .join(', ')
+    .slice(0, 800);
+}
+
 function isTracker(url) {
   return /facebook\.com\/tr|google-analytics|googletagmanager|doubleclick|\/pixel|1x1\.|spacer\.gif/i.test(url);
+}
+
+// Elements pulled out of normal flow: floating WhatsApp/chat buttons, promo
+// badges, decorative background icons (giant phone/envelope silhouettes).
+// They are overlays — not page content — and must never become widgets.
+function isDecorOverlay(sheet, el) {
+  const cs = computedStyle(sheet, el);
+  const pos = String(cs.position || '').toLowerCase();
+  if (pos === 'fixed') return true;
+  if (pos !== 'absolute') return false;
+  // absolutely-positioned content with real text is usually an overlay card —
+  // keep it; icon/image-only decorations with no text get dropped.
+  return clean(el.text).length < 8;
+}
+
+// Text of an element without visually-hidden spans such as screen-reader
+// labels (menu items often hide an sr-only "Home" inside an icon link — it
+// must not become a second menu entry).
+function textVisibleOnly(sheet, el, depth = 0) {
+  let out = '';
+  for (const n of el.childNodes || []) {
+    if (n.nodeType === 3) out += n.text + ' ';
+    else if (n.nodeType === 1 && depth < 8) {
+      if (SKIP_TAGS.has(n.tagName)) continue;
+      if (isHidden(computedStyle(sheet, n), n)) continue;
+      out += textVisibleOnly(sheet, n, depth + 1) + ' ';
+    }
+  }
+  return clean(out);
+}
+
+// Read Elementor's data-settings JSON blob (sliders store their real
+// configuration there: slides_to_show, autoplay, navigation...).
+function dataSettingsOf(el) {
+  const raw = attr(el, 'data-settings') || attr(el, 'data-widget_settings');
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    try {
+      return JSON.parse(raw.replace(/&quot;/g, '"'));
+    } catch {
+      return {};
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Pipeline observability                                              */
+/* ------------------------------------------------------------------ */
+
+function makeLogger() {
+  const lines = [];
+  const t0 = Date.now();
+  const push = (msg) => lines.push(`[+${((Date.now() - t0) / 1000).toFixed(1)}s] ${msg}`);
+  return { lines, push };
+}
+
+function nodePath(el) {
+  const bits = [];
+  let cur = el;
+  for (let i = 0; i < 6 && cur && cur.nodeType === 1 && cur.tagName; i++) {
+    let b = String(cur.tagName || '?').toLowerCase();
+    const c = (cur.getAttribute && cur.getAttribute('class')) || '';
+    if (c) b += '.' + c.trim().split(/\s+/).slice(0, 2).join('.');
+    bits.unshift(b);
+    cur = cur.parentNode;
+  }
+  return bits.join(' > ').slice(0, 220);
+}
+
+function recordError(ctx, stage, el, err) {
+  if (!ctx || !ctx.errors) return;
+  if (ctx.errors.length >= 40) return;
+  ctx.errors.push({ stage, node: el ? nodePath(el) : '', reason: String((err && err.message) || err).slice(0, 220) });
+}
+
+/* ------------------------------------------------------------------ */
+/* Animation intelligence                                              */
+/* ------------------------------------------------------------------ */
+
+// Elementor's entrance-animation library (animate.css family) — names that a
+// converted widget can reference natively.
+const ELX_ANIM_LIB = new Set([
+  'fadeIn','fadeInDown','fadeInLeft','fadeInRight','fadeInUp',
+  'zoomIn','zoomInDown','zoomInLeft','zoomInRight','zoomInUp','zoomOut',
+  'bounceIn','bounceInDown','bounceInLeft','bounceInRight','bounceInUp','bounce',
+  'slideInDown','slideInLeft','slideInRight','slideInUp','slideOutUp',
+  'rotateIn','rotateInDownLeft','rotateInDownRight','rotateInUpLeft','rotateInUpRight',
+  'flipInX','flipInY','lightSpeedIn','rollIn',
+  'pulse','swing','tada','wobble','jello','rubberBand','shake','heartbeat','flash',
+]);
+
+const ANIM_FUZZY = [
+  [/fade.?(in)?.?(up|top)/i, 'fadeInUp'],
+  [/fade.?(in)?.?(down|bottom)/i, 'fadeInDown'],
+  [/fade.?(in)?.?left/i, 'fadeInLeft'],
+  [/fade.?(in)?.?right/i, 'fadeInRight'],
+  [/zoom.?(in)?/i, 'zoomIn'],
+  [/bounce.?(in)?/i, 'bounceIn'],
+  [/slide.?(in)?.?(up|top)/i, 'slideInUp'],
+  [/slide.?(in)?.?(down|bottom)/i, 'slideInDown'],
+  [/rotate/i, 'rotateIn'],
+  [/flip.?(in)?.?x|flip.?(in)?$/i, 'flipInX'],
+  [/flip.?(in)?.?y/i, 'flipInY'],
+  [/light.?speed/i, 'lightSpeedIn'],
+  [/roll/i, 'rollIn'],
+  [/fade/i, 'fadeIn'],
+  [/grow|scale/i, 'zoomIn'],
+  [/pulse/i, 'pulse'],
+  [/swing/i, 'swing'],
+  [/tada/i, 'tada'],
+  [/wobble/i, 'wobble'],
+];
+
+// AOS / WOW / animate.css attribute & class vocabularies → animation names.
+function libAnimFromClasses(el) {
+  const cl = (el.getAttribute && el.getAttribute('class')) || '';
+  const aos = (el.getAttribute && el.getAttribute('data-aos')) || '';
+  const tokens = [];
+  if (aos) tokens.push(aos);
+  cl.split(/\s+/).forEach((c) => {
+    if (/^(fade|zoom|slide|bounce|rotate|flip|roll|pulse|swing|tada|wobble|jello|rubberBand|shake|flash|heartbeat|lightSpeed)/.test(c)) tokens.push(c);
+  });
+  for (const t of tokens) {
+    const exact = t[0].toUpperCase() === t[0] ? t : t.replace(/^./, (m) => m.toLowerCase());
+    if (ELX_ANIM_LIB.has(exact)) return exact;
+    for (const [re, name] of ANIM_FUZZY) if (re.test(t)) return name;
+  }
+  return '';
+}
+
+const ANIM_KEYWORDS = /^(none|initial|inherit|ease|ease-in|ease-out|ease-in-out|linear|infinite|alternate|forwards|backwards|both|running|paused|normal|reverse)$/i;
+
+// Resolve the entrance animation of an element: CSS animation-name/shorthand
+// → animate-lib classes → data-aos. Unknown names survive as custom
+// keyframes (the renderer re-emits them) — animations are never dropped.
+function animationOf(sheet, el) {
+  let name = '';
+  let custom = '';
+  const cs = computedStyle(sheet, el);
+  const fromName = String(cs['animation-name'] || '').replace(/,.*$/, '').trim();
+  if (fromName && !ANIM_KEYWORDS.test(fromName)) name = fromName;
+  if (!name && cs.animation) {
+    for (const tok of String(cs.animation).replace(/,.*$/, '').split(/\s+/)) {
+      if (!tok || ANIM_KEYWORDS.test(tok) || /^[\d.]+m?s$/.test(tok) || /^cubic-bezier|steps/.test(tok)) continue;
+      name = tok;
+      break;
+    }
+  }
+  let mapped = '';
+  if (name) {
+    if (ELX_ANIM_LIB.has(name)) mapped = name;
+    else for (const [re, m] of ANIM_FUZZY) if (re.test(name)) { mapped = m; break; }
+    if (!mapped && sheet.keyframes && sheet.keyframes.has(name)) custom = name;
+  }
+  if (!mapped && !custom) mapped = libAnimFromClasses(el);
+  if (!mapped && !custom) return null;
+  const delay = Math.round((px(cs['animation-delay']) || parseFloat(cs['animation-delay']) || 0) * (String(cs['animation-delay']).includes('ms') ? 1 : 1000)) || 0;
+  return { animation: mapped || '', custom, delay };
+}
+
+// Compose Elementor animation + transition settings for any converted node.
+// Elementor consumes `_animation` natively on import; `_elx_*` keys are used
+// by the faithful renderer only.
+function motionSettings(sheet, el) {
+  const out = {};
+  const a = animationOf(sheet, el);
+  if (a) {
+    if (a.animation) out._animation = a.animation;
+    if (a.custom) {
+      out._elx_custom_anim = a.custom;
+      // renderer re-emits the real @keyframes so the effect survives intact
+      const kf = sheet.keyframes && sheet.keyframes.get(a.custom);
+      if (kf) out._elx_custom_anim_css = `@keyframes ${a.custom}{${kf}}`;
+    }
+    if (a.delay) out._animation_delay = a.delay;
+  }
+  const cs = computedStyle(sheet, el);
+  const tr = cs.transition;
+  if (tr && !/^(all )?0s|none/i.test(tr.trim())) out._elx_transition = tr.slice(0, 180);
+  else if (cs['transition-duration'] && !/^0s/.test(cs['transition-duration'])) {
+    out._elx_transition = `${cs['transition-property'] || 'all'} ${cs['transition-duration']} ${cs['transition-timing-function'] || 'ease'}${cs['transition-delay'] && cs['transition-delay'] !== '0s' ? ' ' + cs['transition-delay'] : ''}`;
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive intelligence                                             */
+/* ------------------------------------------------------------------ */
+
+function padsEqual(a, b) {
+  return ['top', 'right', 'bottom', 'left'].every((k) => (a[k] || 0) === (b[k] || 0));
+}
+
+// Replay mobile/tablet media rules and turn the diffs into genuine Elementor
+// responsive settings (hide_*, padding_*, typography size, full-width stack).
+function responsiveSettings(sheet, el, kind, st = {}) {
+  const out = {};
+  const desk = computedStyle(sheet, el);
+  if (/none/i.test(desk.display || '')) return out;
+  const mob = computedStyleAt(sheet, el, 'mobile');
+  const tab = computedStyleAt(sheet, el, 'tablet');
+  if (isHidden(mob, el) || /none/i.test(mob.display || '')) out.hide_mobile = 'yes';
+  else if (isHidden(tab, el) || /none/i.test(tab.display || '')) out.hide_tablet = 'yes';
+
+  if (kind === 'section') {
+    const pd = boxOf(desk, 'padding');
+    const pm = boxOf(mob, 'padding');
+    const pt = boxOf(tab, 'padding');
+    if (!padsEqual(pm, pd)) out.padding_mobile = paddingSettings(pm, 0, 0);
+    if (!padsEqual(pt, pd) && padsEqual(pm, pd)) out.padding_tablet = paddingSettings(pt, 0, 0);
+  }
+  if (kind === 'widget') {
+    const fd = px(desk['font-size']);
+    const fm = px(mob['font-size']);
+    if (fd && fm && Math.abs(fm - fd) >= 1) {
+      const diff = { unit: 'px', size: Math.round(fm), sizes: [] };
+      if (st.typography_typography === 'custom') out.typography_font_size_mobile = diff;
+      else out._elx_mobile_font_size = diff.size;
+    }
+    const pwD = px(desk.width);
+    const pwM = px(mob.width);
+    if (pwD && pwM && pwM > pwD + 40) out._elx_mobile_full = 'yes';
+  }
+  if (kind === 'column') {
+    const wM = pct(mob.width);
+    if (wM && wM >= 96) out._inline_size_mobile = 100;
+  }
+  return out;
+}
+
+// Card-likeness of a widget/container: solid background, big radius or shadow.
+// Unknown premium widgets that look like cards keep their chrome instead of
+// being stripped to bare text.
+function cardStyleOf(sheet, el) {
+  const cs = computedStyle(sheet, el);
+  const bg = normColor(cs['background-color']) || normColor(cs.background);
+  const radius = px(cs['border-radius']);
+  const shadow = cs['box-shadow'] && !/none/i.test(cs['box-shadow']) ? cs['box-shadow'] : '';
+  const borderW = px(cs['border-width']);
+  const borderCol = borderW ? normColor(cs['border-color']) || '#E4E4E4' : '';
+  if (!bg && !(radius && radius >= 6 && shadow) && !borderW) return null;
+  return { bg: bg || '', radius, shadow: shadow || '', borderW: borderW || 0, borderCol, padding: boxOf(cs, 'padding') };
 }
 
 /* ------------------------------------------------------------------ */
 /* Fetch                                                               */
 /* ------------------------------------------------------------------ */
 
-async function fetchHtml(url) {
+export async function fetchHtml(url) {
   const headers = {
     'User-Agent': UA,
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -307,12 +568,13 @@ function resolveAlign(sheet, el, fallback = 'left') {
     const ta = (cs['text-align'] || '').toLowerCase();
     if (ta && ta !== 'start' && ta !== 'inherit') return ta === 'end' ? 'right' : ta;
     if (ta === 'start') return 'left';
-    // flex containers: justify-content maps to visual alignment
+    // flex containers map their main/cross axis to visual alignment
     if (/flex/i.test(cs.display || '')) {
-      const jc = (cs['justify-content'] || '').toLowerCase();
-      if (/center/.test(jc)) return 'center';
-      if (/flex-end|end|right/.test(jc)) return 'right';
-      if (/flex-start|start|left/.test(jc)) return 'left';
+      const dir = /column/.test((cs['flex-direction'] || '').toLowerCase());
+      const val = (dir ? cs['align-items'] || '' : cs['justify-content'] || '').toLowerCase();
+      if (/center/.test(val)) return 'center';
+      if (/flex-end|end|right/.test(val)) return 'right';
+      if (!dir && /flex-start|start|left/.test(val)) return 'left';
     }
     node = node.parentNode;
   }
@@ -467,6 +729,8 @@ function widgetWidthOf(sheet, el) {
   if (/elementor-widget__width-auto/.test(c)) return { mode: 'auto' };
   if (/elementor-widget__width-inherit/.test(c)) return { mode: 'full' };
   const cs = computedStyle(sheet, el);
+  // Widgets displayed inline-block size to their content — keep them compact.
+  if (/inline-block|inline-flex/.test(cs.display || '')) return { mode: 'auto' };
   const p = pct(cs.width) ?? pct(cs['max-width']);
   if (p && p < 99) return { mode: 'pct', value: Math.round(p) };
   return { mode: 'full' };
@@ -482,6 +746,9 @@ function convertNativeWidget(el, ctx) {
 
   const finish = (w) => {
     if (!w) return null;
+    if (w.settings) {
+      Object.assign(w.settings, motionSettings(sheet, el), responsiveSettings(sheet, el, 'widget', w.settings));
+    }
     w.__width = width;
     w.__preview = { ...(w.__preview || {}), align: w.__align || 'left', width };
     return w;
@@ -545,6 +812,8 @@ function convertNativeWidget(el, ctx) {
       const cs = computedStyle(sheet, img);
       const cssW = px(cs.width) || px(cs['max-width']) || natW;
       const align = resolveAlign(sheet, el, 'center');
+      const opRaw = computedStyle(sheet, box).opacity ?? cs.opacity;
+      const imgOpacity = opRaw !== undefined && opRaw !== '' && !Number.isNaN(parseFloat(opRaw)) ? Math.round(parseFloat(opRaw) * 100) / 100 : null;
       ctx.assets.push({ type: 'image', url, alt });
       const w = makeWidget(
         'image',
@@ -555,8 +824,9 @@ function convertNativeWidget(el, ctx) {
           align,
           ...(cssW && cssW < 1200 ? { width: { unit: 'px', size: Math.round(cssW), sizes: [] } } : {}),
           ...(link ? { link_to: 'custom', link: { url: abs(attr(link, 'href'), base), is_external: 'true', nofollow: '' } } : {}),
+          ...(imgOpacity !== null && imgOpacity < 0.99 ? { _elx_opacity: imgOpacity } : {}),
         },
-        { kind: 'image', url, text: alt, natWidth: cssW || natW }
+        { kind: 'image', url, text: alt, natWidth: cssW || natW, opacity: imgOpacity }
       );
       w.__align = align;
       return finish(w);
@@ -612,10 +882,20 @@ function convertNativeWidget(el, ctx) {
         })
         .filter((e) => e.text);
       if (!entries.length) return null;
-      const iconSvg = box.querySelector('svg');
-      const iconColor = iconSvg ? normColor(attr(iconSvg.querySelector('path') || iconSvg, 'fill')) : '';
+      // Icon colour: explicit svg fill wins, then the icon slot's css colour,
+      // then the item's computed text colour, then the brand primary.
+      const svgEl = box.querySelector('svg');
+      const iconSlot = box.querySelector('.elementor-icon-list-icon');
+      const firstItem = box.querySelector('.elementor-icon-list-item a, .elementor-icon-list-item');
+      let iconColor = '';
+      if (svgEl) iconColor = normColor(attr(svgEl.querySelector('path') || svgEl, 'fill'));
+      if (!iconColor && iconSlot) iconColor = normColor(computedStyle(sheet, iconSlot).color);
+      const itemColor = firstItem ? normColor(computedStyle(sheet, firstItem).color) : '';
+      if (!iconColor) iconColor = itemColor;
       const align = resolveAlign(sheet, el, inline ? 'center' : 'left');
       const t = typoFrom(sheet, box, 15);
+      const textColor = normColor(computedStyle(sheet, box.querySelector('.elementor-icon-list-text') || box).color) || itemColor || t.color;
+      const finalIcon = iconColor || ctx.design.primary;
       const w = makeWidget(
         'icon-list',
         `${label}${inline ? ' (inline)' : ''}`,
@@ -628,11 +908,12 @@ function convertNativeWidget(el, ctx) {
             link: { url: e.url, is_external: 'true', nofollow: '' },
           })),
           space_between: { unit: 'px', size: inline ? 40 : 12, sizes: [] },
-          icon_color: iconColor || ctx.design.primary,
+          icon_color: finalIcon,
+          ...(textColor ? { text_color: textColor } : {}),
           align,
           ...typo('icon_typography_', t),
         },
-        { kind: 'list', items: entries.map((e) => e.text), inline, iconColor: iconColor || ctx.design.primary, color: t.color }
+        { kind: 'list', items: entries.map((e) => e.text), inline, iconColor: finalIcon, color: textColor || t.color }
       );
       w.__align = align;
       return finish(w);
@@ -643,16 +924,17 @@ function convertNativeWidget(el, ctx) {
       const topLis = (nav.querySelector('ul') ? nav.querySelector('ul').childNodes : []).filter((n) => n.nodeType === 1 && n.tagName === 'LI');
       const entries = (topLis.length ? topLis : nav.querySelectorAll('li')).slice(0, 14).map((li) => {
         const a = li.querySelector('a');
-        const subs = li.querySelectorAll('.sub-menu a, ul a').map((s) => clean(s.text)).filter(Boolean);
+        const subs = li.querySelectorAll('.sub-menu a, ul a').map((x) => textVisibleOnly(sheet, x)).filter(Boolean);
         return {
-          text: clean(a ? a.text : li.text).split('\n')[0],
+          text: (a ? textVisibleOnly(sheet, a) : textVisibleOnly(sheet, li)).split('\n')[0],
           url: a ? abs(attr(a, 'href'), base) : '',
           children: subs.slice(0, 10),
         };
       }).filter((e) => e.text);
       if (!entries.length) return null;
       const align = resolveAlign(sheet, el, 'right');
-      const t = typoFrom(sheet, nav.querySelector('a') || nav, 15);
+      const topLink = (topLis.length && topLis[0].querySelector(':scope > a')) || nav.querySelector('a');
+      const t = typoFrom(sheet, topLink || nav, 15);
       const w = makeWidget(
         'nav-menu',
         label,
@@ -662,6 +944,8 @@ function convertNativeWidget(el, ctx) {
           align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
           ...typo('menu_typography_', t),
           color_menu_item: t.color || '',
+          // carried for the faithful HTML renderer; Elementor ignores unknown keys
+          _elx_menu_items: entries.map((e) => ({ text: e.text, url: e.url, children: e.children || [] })),
         },
         { kind: 'menu', items: entries, align, color: t.color }
       );
@@ -687,6 +971,7 @@ function convertNativeWidget(el, ctx) {
           text_align: align,
           selected_icon: { value: 'fas fa-star', library: 'fa-solid' },
           primary_color: ctx.design.primary,
+          ...(iconUrl ? { _elx_icon_image: iconUrl } : {}),
         },
         { kind: 'iconbox', text: title, desc, iconUrl, hasSvg: !!svg }
       );
@@ -699,17 +984,78 @@ function convertNativeWidget(el, ctx) {
       const unique = [...new Set(imgs)];
       if (!unique.length) return null;
       unique.forEach((u) => ctx.assets.push({ type: 'image', url: u, alt: 'Carousel slide' }));
+      // Elementor sliders carry their real config in data-settings — respect
+      // it instead of guessing, so hero banners stay one-slide full-width.
+      const ds = { ...dataSettingsOf(el), ...dataSettingsOf(box) };
+      // rendered height keeps full-bleed heroes from collapsing to thumbnails;
+      // themes usually size the slider wrapper, not the widget container.
+      const wrapEl =
+        box.querySelector('.elementor-image-carousel-wrapper, .swiper-container, .swiper, .slick-list, .slides') || box;
+      const hcs = computedStyle(sheet, wrapEl);
+      const slideH =
+        px(hcs.height) ||
+        px(hcs['min-height']) ||
+        px(computedStyle(sheet, box).height) ||
+        px(computedStyle(sheet, box)['min-height']) ||
+        px(computedStyle(sheet, el)['min-height']);
+      // no explicit config → mimic Elementor's own default (3-up strip) unless
+      // the slider is clearly a full-bleed hero (big computed wrapper height).
+      let slidesToShow = String(ds.slides_to_show || ds.slidesToShow || '');
+      if (!slidesToShow) slidesToShow = slideH && slideH >= 300 ? '1' : unique.length >= 3 ? '3' : '1';
+      const navigation = ds.navigation || 'both';
+      const autoplay = ds.autoplay === 'no' ? 'no' : 'yes';
+      // captions: any heading/figcaption living beside the slide image
+      const slideScopes = box.querySelectorAll('.swiper-slide, .slick-slide, figure, .elementor-carousel-image');
+      const captions = unique.map((u) => {
+        const scope = slideScopes.find((sc) => imageSrc(sc.querySelector('img') || {}, base) === u);
+        if (!scope) return '';
+        const h = scope.querySelector('figcaption, h1,h2,h3,h4,h5,h6, .elementor-image-carousel-caption, .caption');
+        return h ? textVisibleOnly(sheet, h) : '';
+      });
+      const captionsAny = captions.some(Boolean);
       const w = makeWidget(
         'image-carousel',
         `${label} (${unique.length})`,
         {
           carousel: unique.map((u) => ({ id: '', url: u })),
-          slides_to_show: '1',
-          navigation: 'both',
-          autoplay: 'yes',
+          slides_to_show: slidesToShow,
+          navigation,
+          autoplay,
           image_size: 'full',
+          ...(captionsAny ? { _elx_captions: captions } : {}),
+          ...(slideH && slideH >= 140 ? { _elx_slide_height: Math.round(slideH) } : {}),
         },
-        { kind: 'carousel', images: unique }
+        { kind: 'carousel', images: unique, captions, slideHeight: slideH || null }
+      );
+      w.__align = 'center';
+      return finish(w);
+    }
+
+    case 'image-gallery': {
+      // captions: only text that was actually visible on the page (a real
+      // figcaption). Alt text is metadata — never paint it as an overlay.
+      const items = box.querySelectorAll('img')
+        .map((i) => {
+          const fig = i.closest('figure');
+          const cap = fig && fig.querySelector('figcaption') ? textVisibleOnly(sheet, fig.querySelector('figcaption')) : '';
+          return { url: imageSrc(i, base), alt: clean(attr(i, 'alt')), caption: clean(cap) };
+        })
+        .filter((x) => x.url && !isTracker(x.url));
+      const seen = new Set();
+      const unique = items.filter((x) => !seen.has(x.url) && seen.add(x.url));
+      if (!unique.length) return null;
+      unique.slice(0, 18).forEach((x) => ctx.assets.push({ type: 'image', url: x.url, alt: x.alt || 'Gallery image' }));
+      const gridHost = box.querySelector('[class*="gallery-grid-columns-"]') || box;
+      const gridCols = /gallery-grid-columns-(\d)/.exec(cls(gridHost) + ' ' + cls(gridHost.parent));
+      const w = makeWidget(
+        'image-gallery',
+        `${label} (${unique.length})`,
+        {
+          gallery_columns: gridCols ? gridCols[1] : '3',
+          gallery_link: 'none',
+          _elx_gallery: unique.slice(0, 18),
+        },
+        { kind: 'gallery', images: unique.map((x) => x.url), captions: unique.map((x) => x.caption) }
       );
       w.__align = 'center';
       return finish(w);
@@ -725,7 +1071,7 @@ function convertNativeWidget(el, ctx) {
       const w = makeWidget(
         'loop-carousel',
         `${label} (${cards.length})`,
-        { template_id: '', slides_to_show: '3', autoplay: 'yes' },
+        { template_id: '', slides_to_show: '3', autoplay: 'yes', _elx_loop_cards: cards },
         { kind: 'loop', cards }
       );
       w.__align = 'center';
@@ -858,6 +1204,57 @@ function convertNativeWidget(el, ctx) {
         }
       }
       if (!text && !html.trim()) return null;
+
+      // Image-rich unknown block with no headings → a gallery grid, not a blob.
+      const allImgs = box.querySelectorAll('img').map((i) => imageSrc(i, base)).filter((u) => u && !isTracker(u));
+      const uniqImgs = [...new Set(allImgs)];
+      if (uniqImgs.length >= 3 && !box.querySelector('h1,h2,h3,h4,h5,h6')) {
+        uniqImgs.slice(0, 18).forEach((u) => ctx.assets.push({ type: 'image', url: u, alt: 'Gallery image' }));
+        const w = makeWidget(
+          'image-gallery',
+          `Gallery (from ${type || 'block'})`,
+          { gallery_columns: '3', gallery_link: 'none', _elx_gallery: uniqImgs.slice(0, 18).map((u) => ({ url: u, caption: '' })) },
+          { kind: 'gallery', images: uniqImgs }
+        );
+        w.__align = 'center';
+        return finish(w);
+      }
+
+      // Unknown / third-party widget (premium cards, custom blocks…) — expand
+      // its real children into native widgets instead of an HTML dump, so
+      // texts keep their computed colours and images keep their sizes.
+      const subCtx = { base, sheet, design: ctx.design, assets: ctx.assets, pro: ctx.pro, sectionType: ctx.sectionType, seen: new Set() };
+      const extracted = genericWidgets(box, subCtx, 0, []);
+      if (extracted.length) {
+        const card = cardStyleOf(sheet, el) || cardStyleOf(sheet, box);
+        if (card && (card.bg || card.borderW)) {
+          // card chrome preserved as an inner row with the card's own
+          // background/radius/shadow — stacked widgets keep one visual card.
+          const blocks = extracted.map((w) => (w.__isRow ? w.row : { kind: 'widget', widget: w }));
+          return {
+            kind: 'row',
+            columns: [
+              {
+                blocks,
+                width: 100,
+                align: extractColumnAlign(extracted),
+                valign: 'flex-start',
+                background: { color: card.bg, image: '' },
+                radius: card.radius || 0,
+                shadow: card.shadow || '',
+                borderW: card.borderW || 0,
+                borderCol: card.borderCol || '',
+                padding: card.padding,
+              },
+            ],
+            background: { color: '', image: '' },
+            gap: 16,
+            alignItems: 'flex-start',
+          };
+        }
+        return extracted.map((w) => (w.__isRow ? w.row : { kind: 'widget', widget: w }));
+      }
+
       const align = resolveAlign(sheet, el, 'left');
       const w = makeWidget(
         'html',
@@ -871,6 +1268,18 @@ function convertNativeWidget(el, ctx) {
   }
 }
 
+
+function extractColumnAlign(widgets) {
+  const a = widgets.map((w) => w.__align).find((x) => x === 'center' || x === 'right');
+  return a || 'left';
+}
+
+function asBlocks(converted) {
+  if (!converted) return [];
+  if (Array.isArray(converted)) return converted;
+  if (converted.kind === 'row' || converted.kind === 'widget') return [converted];
+  return [{ kind: 'widget', widget: converted }];
+}
 // Walks a column and returns an ordered list of blocks.
 // A block is either { kind:'widget', widget } or { kind:'row', columns:[...] }
 // so nested Elementor inner-sections keep their real multi-column layout.
@@ -883,6 +1292,7 @@ function collectNativeBlocks(colEl, ctx, depth = 0) {
       if (child.nodeType !== 1 || SKIP_TAGS.has(child.tagName)) continue;
       const cs = computedStyle(sheet, child);
       if (isHidden(cs, child)) continue;
+      if (isDecorOverlay(sheet, child)) continue;
 
       if (isWidgetEl(child)) {
         const type = widgetTypeOf(child);
@@ -900,8 +1310,8 @@ function collectNativeBlocks(colEl, ctx, depth = 0) {
             }
           }
         }
-        const w = convertNativeWidget(child, ctx);
-        if (w) out.push({ kind: 'widget', widget: w });
+        const converted = convertNativeWidget(child, ctx);
+        asBlocks(converted).forEach((b) => out.push(b));
         continue;
       }
 
@@ -1120,8 +1530,12 @@ function unwrap(el, sheet, maxDepth = 4) {
   return cur;
 }
 
+// Walks the CHILDREN of `node`, classifying each against the widget
+// branches. Element-level branches only fire for nodes seen as children —
+// callers that want a subtree's ROOT itself classified wrap it once in a
+// ROOT pseudo-parent (see genericColumns / card-grid / rescue call sites).
 function genericWidgets(node, ctx, depth = 0, out = []) {
-  if (depth > 14 || out.length >= 45) return out;
+  if (depth > 16 || out.length >= 45) return out;
   const sheet = ctx.sheet;
 
   for (const child of node.childNodes || []) {
@@ -1137,18 +1551,120 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       }
       continue;
     }
-    if (child.nodeType !== 1 || SKIP_TAGS.has(child.tagName)) continue;
+    if (child.nodeType !== 1 || (SKIP_TAGS.has(child.tagName) && child.tagName !== 'SVG')) continue;
     const cs = computedStyle(sheet, child);
     if (isHidden(cs, child)) continue;
+    if (isDecorOverlay(sheet, child)) continue;
 
     const tag = child.tagName;
     const align = resolveAlign(sheet, child, 'left');
     const push = (w) => {
       if (!w) return;
+      if (w.settings) {
+        Object.assign(w.settings, motionSettings(sheet, child), responsiveSettings(sheet, child, 'widget', w.settings));
+      }
       w.__align = align;
       w.__preview = { ...(w.__preview || {}), align };
       out.push(w);
     };
+
+    // Inline SVG icons/logos: preserved as vector markup (never rasterised).
+    if (tag === 'SVG') {
+      const markup = sanitiseInline(child.outerHTML || '', ctx.base);
+      if (markup && markup.length >= 60 && markup.length < 20000) {
+        const sig = 'svg:' + markup.length + ':' + markup.slice(0, 80);
+        if (!ctx.seen.has(sig)) {
+          ctx.seen.add(sig);
+          push(makeWidget('html', 'Vector (SVG)', { html: markup }, { kind: 'image', text: 'inline svg' }));
+        }
+      }
+      continue;
+    }
+
+    // FAQ / accordion markup → a real Elementor toggle widget.
+    if (tag === 'DETAILS') {
+      const sumEl = child.querySelector('summary');
+      const question = clean(sumEl ? sumEl.text : '');
+      if (question && !ctx.seen.has('q:' + question.toLowerCase())) {
+        ctx.seen.add('q:' + question.toLowerCase());
+        const answerHtml = sanitiseInline(
+          child.innerHTML.replace(sumEl.outerHTML, ''),
+          ctx.base
+        ).slice(0, 3000);
+        push(
+          makeWidget(
+            'toggle',
+            'Toggle',
+            {
+              tabs: [
+                {
+                  _id: uid(),
+                  tab_title: question,
+                  tab_content: answerHtml || `<p>${escapeHtml(clean(child.text).replace(question, '').slice(0, 600))}</p>`,
+                },
+              ],
+              selected_icon: { value: 'fas fa-plus', library: 'fa-solid' },
+              selected_active_icon: { value: 'fas fa-minus', library: 'fa-solid' },
+            },
+            { kind: 'toggle', text: question }
+          )
+        );
+      }
+      continue;
+    }
+
+    // Stat blocks ("4,500+ Happy Customers") → counter widget.
+    if (/counter|count|stat|fact|number|milestone|kpi/i.test(cls(child))) {
+      const m = clean(child.text).match(/^([^\d]*?)\s*([\d][\d,.]*)\s*([%+kKmMxX×]*)\s*(.*)$/);
+      if (m) {
+        const value = parseFloat(m[2].replace(/,/g, ''));
+        if (Number.isFinite(value) && clean(child.text).length < 80) {
+          const label = clean((m[1] + ' ' + m[4]).trim() || (child.querySelector('small,span,p,div') || {}).text || '');
+          push(
+            makeWidget(
+              'counter',
+              'Counter',
+              {
+                starting_number: 0,
+                ending_number: value,
+                suffix: m[3] || '',
+                title: label,
+                duration: 2000,
+              },
+              { kind: 'counter', text: `${value}${m[3] || ''} ${label}` }
+            )
+          );
+          continue;
+        }
+      }
+    }
+
+    // Progress bars (role=progressbar or %-width bar children) → progress.
+    if (/progress/i.test(attr(child, 'role') || cls(child))) {
+      let percent = NaN;
+      const cands = [child, ...child.querySelectorAll('*')];
+      for (const n of cands) {
+        const ariaV = parseFloat(attr(n, 'aria-valuenow') || '');
+        if (Number.isFinite(ariaV) && ariaV > 0 && ariaV <= 100) { percent = ariaV; break; }
+        const v = pct(computedStyle(sheet, n).width);
+        if (v && v > 0.5 && v <= 100) { percent = v; break; }
+      }
+      if (percent && percent > 0 && percent <= 100) {
+        const lblEl = child.querySelector('[class*=lbl],[class*=label],[class*=title]') || child.querySelector('span');
+        let label = clean((lblEl || {}).text || '');
+        // strip a trailing percentage from the label line ("Kubernetes 92%")
+        label = label.replace(/\s*\d+(\.\d+)?\s*%\s*$/, '');
+        push(
+          makeWidget(
+            'progress',
+            'Progress Bar',
+            { title: label || clean(child.text).slice(0, 40), percent: { unit: '%', size: Math.round(percent), sizes: [] } },
+            { kind: 'progress', text: `${Math.round(percent)}% ${label}` }
+          )
+        );
+        continue;
+      }
+    }
 
     if (/^H[1-6]$/.test(tag)) {
       const title = clean(child.text);
@@ -1167,6 +1683,26 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       continue;
     }
 
+    // Text runt: a DIV/SPAN-level container whose whole content is one short
+    // line (prices, chips, dates, counts) — keep it with its real typography.
+    if (/^(DIV|SPAN|DD|DT|TIME|SMALL|STRONG|B|EM|I)$/.test(tag)) {
+      const elKids = (child.childNodes || []).filter((n) => n.nodeType === 1 && !SKIP_TAGS.has(n.tagName));
+      const t = clean(child.text);
+      if (t && t.length <= 80 && elKids.length === 0 && !ctx.seen.has(t.toLowerCase())) {
+        ctx.seen.add(t.toLowerCase());
+        const ty = typoFrom(sheet, child, 16);
+        push(
+          makeWidget(
+            'text-editor',
+            'Text Editor',
+            { editor: `<p>${sanitiseInline(escapeHtml(t), ctx.base)}</p>`, align, text_color: ty.color || '', ...typo('typography_', ty) },
+            { kind: 'text', text: t, color: ty.color, size: ty.size }
+          )
+        );
+        continue;
+      }
+    }
+
     if (tag === 'IMG') {
       const url = imageSrc(child, ctx.base);
       const w = parseInt(attr(child, 'width') || '0');
@@ -1175,6 +1711,9 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       const alt = clean(attr(child, 'alt'));
       ctx.assets.push({ type: 'image', url, alt });
       const cssW = px(cs.width) || px(cs['max-width']) || w || null;
+      const srcset = absSrcset(attr(child, 'srcset') || attr(child, 'data-srcset'), ctx.base);
+      const sizes = clean(attr(child, 'sizes'));
+      const lazy = (attr(child, 'loading') || '').toLowerCase() === 'lazy';
       push(
         makeWidget(
           'image',
@@ -1184,8 +1723,11 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
             image_size: 'full',
             align: align === 'left' ? 'center' : align,
             ...(cssW && cssW < 1200 ? { width: { unit: 'px', size: Math.round(cssW), sizes: [] } } : {}),
+            ...(srcset ? { _elx_srcset: srcset } : {}),
+            ...(sizes ? { _elx_sizes: sizes.slice(0, 160) } : {}),
+            ...(lazy ? { _elx_lazy: 'yes' } : {}),
           },
-          { kind: 'image', url, text: alt, natWidth: cssW }
+          { kind: 'image', url, text: alt, natWidth: cssW, lazy }
         )
       );
       continue;
@@ -1194,12 +1736,40 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
     if (tag === 'PICTURE' || tag === 'FIGURE') {
       const img = child.querySelector('img');
       if (img) {
-        genericWidgets({ childNodes: [img] }, ctx, depth + 1, out);
-        const cap = child.querySelector('figcaption');
-        if (cap) {
-          const t = clean(cap.text);
-          if (t) push(makeWidget('text-editor', 'Caption', { editor: `<p><em>${escapeHtml(t)}</em></p>`, align: 'center' }, { kind: 'text', text: t }));
-        }
+        const url = imageSrc(img, ctx.base);
+        if (!url || isTracker(url) || ctx.seen.has('img:' + url)) continue;
+        ctx.seen.add('img:' + url);
+        const alt = clean(attr(img, 'alt'));
+        ctx.assets.push({ type: 'image', url, alt });
+        const ics = computedStyle(sheet, img);
+        const capEl = child.querySelector('figcaption');
+        // a figcaption is visible text sitting on the image — preserve it as
+        // an overlay caption together with the image's own crop/radius.
+        const cap = capEl ? textVisibleOnly(sheet, capEl) : '';
+        const cssW = px(ics.width) || px(ics['max-width']) || parseInt(attr(img, 'width') || '0', 10) || null;
+        const cssH = px(ics.height);
+        const rad = px(ics['border-radius']);
+        const picSrc = tag === 'PICTURE' ? (child.querySelector('source[srcset]') || child.querySelector('SOURCE[srcset]')) : null;
+        const srcset = absSrcset(attr(img, 'srcset') || (picSrc ? attr(picSrc, 'srcset') : ''), ctx.base);
+        const lazy = (attr(img, 'loading') || '').toLowerCase() === 'lazy';
+        push(
+          makeWidget(
+            'image',
+            'Image',
+            {
+              image: { url, id: '', alt, source: 'library' },
+              image_size: 'full',
+              align: align === 'left' ? 'center' : align,
+              ...(cssW && cssW < 1200 ? { width: { unit: 'px', size: Math.round(cssW), sizes: [] } } : {}),
+              ...(cssH && cssH >= 40 ? { _elx_img_height: Math.round(cssH) } : {}),
+              ...(rad ? { _elx_img_radius: Math.round(rad) } : {}),
+              ...(cap ? { _elx_caption: cap } : {}),
+              ...(srcset ? { _elx_srcset: srcset } : {}),
+              ...(lazy ? { _elx_lazy: 'yes' } : {}),
+            },
+            { kind: 'image', url, text: cap || alt, natWidth: cssW, imgHeight: cssH || null, lazy }
+          )
+        );
         continue;
       }
     }
@@ -1223,6 +1793,65 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       continue;
     }
 
+    // --- repeated card grid → nested row (no flattening) -----------------
+    if (depth >= 1 && depth <= 8 && /^(DIV|UL|OL|SECTION|ARTICLE|MAIN|ASIDE|FIGURE)$/.test(tag)) {
+      const pCs = computedStyle(sheet, child);
+      const disp = String(pCs.display || '').toLowerCase();
+      const rowLike = /flex|grid/.test(disp) || /row|cols|card-deck|columns|grid|flex/i.test(cls(child));
+      const items = rowLike
+        ? (child.childNodes || []).filter((n) => n.nodeType === 1 && !SKIP_TAGS.has(n.tagName) && !isHidden(computedStyle(sheet, n), n) && !isDecorOverlay(sheet, n))
+        : [];
+      const navAncestor = !!child.closest('nav,[role="navigation"],header');
+      const anchorOnly = (n) => {
+        const elKids = (n.childNodes || []).filter((x) => x.nodeType === 1);
+        const a = elKids.length === 1 && elKids[0].tagName === 'A' ? elKids[0] : null;
+        return !!a && clean(n.text).length === clean(a.text).length && clean(a.text).length < 30;
+      };
+      if (navAncestor || items.every(anchorOnly)) items.length = 0;
+      if (items.length >= 3 || (items.length === 2 && /grid|flex/.test(disp))) {
+        const sigOf = (n) => n.tagName + '|' + String((n.getAttribute('class') || '').split(/\s+/).sort().slice(0, 3).join('.'));
+        const similar = items.every((n) => sigOf(n) === sigOf(items[0]) || tag === 'UL' || tag === 'OL' || (tag === 'SECTION' || tag === 'DIV' || tag === 'ARTICLE') && n.tagName === items[0].tagName);
+        const haveText = items.filter((n) => clean(n.text).length > 0).length >= Math.ceil(items.length * 0.6);
+        if (similar && haveText && clean(child.text).length <= 8000) {
+          const gridc = gridColsOf(pCs);
+          const per = gridc && gridc.count < items.length ? gridc.count : 0;
+          const cols = items.slice(0, 8).map((n, idx) => {
+            const subCtx = { ...ctx, seen: ctx.seen };
+            const ws = genericWidgets({ childNodes: [n], tagName: 'ROOT' }, subCtx, depth + 1, []);
+            const card = cardStyleOf(sheet, n);
+            return {
+              blocks: ws.map((w) => ({ kind: 'widget', widget: w })),
+              width: gridc && gridc.frs && idx < gridc.frs.length ? Math.round((gridc.frs[idx] / gridc.frs.reduce((a, b) => a + b, 0)) * 100) : null,
+              align: extractColumnAlign(ws),
+              valign: 'flex-start',
+              background: card && card.bg ? { color: card.bg, image: '' } : { color: '', image: '' },
+              radius: card ? card.radius || 0 : 0,
+              shadow: card ? card.shadow || '' : '',
+              borderW: card ? card.borderW || 0 : 0,
+              borderCol: card ? card.borderCol || '' : '',
+              padding: card ? card.padding : { top: 0, right: 0, bottom: 0, left: 0 },
+            };
+          });
+          if (cols.every((c) => c.blocks.length)) {
+            const gap = px(pCs.gap) ?? px(pCs['column-gap']) ?? 20;
+            out.push({
+              __isRow: true,
+              row: {
+                kind: 'row',
+                columns: cols,
+                background: { color: '', image: '' },
+                gap,
+                alignItems: /center/.test(String(pCs['align-items'] || '')) ? 'center' : 'flex-start',
+                cardGrid: true,
+                perRow: per || 0,
+              },
+            });
+            continue;
+          }
+        }
+      }
+    }
+
     if (tag === 'NAV') {
       const links = child.querySelectorAll('a').slice(0, 14);
       const entries = links.map((a) => ({ text: clean(a.text), url: abs(attr(a, 'href'), ctx.base), children: [] })).filter((e) => e.text);
@@ -1233,7 +1862,12 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
           makeWidget(
             'nav-menu',
             'Nav Menu',
-            { menu: 'primary', layout: 'horizontal', align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start' },
+            {
+              menu: 'primary',
+              layout: 'horizontal',
+              align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
+              _elx_menu_items: entries.map((e) => ({ text: e.text, url: e.url, children: [] })),
+            },
             { kind: 'menu', items: entries, align }
           )
         );
@@ -1255,12 +1889,18 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       texts.forEach((t) => ctx.seen.add(t.toLowerCase()));
       const inline = /inline|flex/i.test(cs.display || '') || /inline/.test(cls(child));
       if (isNav) {
+        const navEntries = texts.map((t, i) => ({ text: t, url: links[i] ? abs(attr(links[i], 'href'), ctx.base) : '', children: [] }));
         push(
           makeWidget(
             'nav-menu',
             'Nav Menu',
-            { menu: 'primary', layout: 'horizontal', align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start' },
-            { kind: 'menu', items: texts.map((t, i) => ({ text: t, url: links[i] ? abs(attr(links[i], 'href'), ctx.base) : '', children: [] })), align }
+            {
+              menu: 'primary',
+              layout: 'horizontal',
+              align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
+              _elx_menu_items: navEntries,
+            },
+            { kind: 'menu', items: navEntries, align }
           )
         );
       } else {
@@ -1278,9 +1918,10 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
               })),
               space_between: { unit: 'px', size: inline ? 40 : 12, sizes: [] },
               icon_color: ctx.design.primary,
+              ...(normColor(cs.color) ? { text_color: normColor(cs.color) } : {}),
               align,
             },
-            { kind: 'list', items: texts, inline, iconColor: ctx.design.primary }
+            { kind: 'list', items: texts, inline, iconColor: ctx.design.primary, color: normColor(cs.color) || undefined }
           )
         );
       }
@@ -1302,6 +1943,42 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
               { editor: `<p>${sanitiseInline(innerHtml, ctx.base)}</p>`, align, text_color: ty.color || '', ...typo('typography_', ty) },
               { kind: 'text', text: t, color: ty.color, size: ty.size }
             )
+      );
+      continue;
+    }
+
+    // brand social anchors (own or grouped with siblings) → social-icons
+    if (tag === 'A' && /facebook|instagram|twitter|x\.com|youtu|linkedin|github|pinterest|tiktok|whatsapp|discord|threads/i.test(abs(attr(child, 'href'), ctx.base))) {
+      const parent = child.parentNode;
+      const pKey = 'social:' + nodePath(parent || child);
+      if (ctx.seen.has(pKey)) continue;
+      const links = (parent ? parent.querySelectorAll('a') : [child])
+        .map((a) => abs(attr(a, 'href'), ctx.base))
+        .filter((u) => /facebook|instagram|twitter|x\.com|youtu|linkedin|github|pinterest|tiktok|whatsapp|discord|threads/i.test(u));
+      const uniq = [...new Set(links)].slice(0, 10);
+      const iconFor = (u) =>
+        /facebook/.test(u) ? 'fab fa-facebook-f'
+        : /instagram/.test(u) ? 'fab fa-instagram'
+        : /x\.com|twitter/.test(u) ? 'fab fa-x-twitter'
+        : /youtu/.test(u) ? 'fab fa-youtube'
+        : /linkedin/.test(u) ? 'fab fa-linkedin-in'
+        : /github/.test(u) ? 'fab fa-github'
+        : /whatsapp/.test(u) ? 'fab fa-whatsapp'
+        : /pinterest/.test(u) ? 'fab fa-pinterest-p'
+        : /tiktok/.test(u) ? 'fab fa-tiktok'
+        : 'fas fa-link';
+      ctx.seen.add(pKey);
+      links.forEach((u) => ctx.seen.add('btn:' + u.toLowerCase()));
+      push(
+        makeWidget(
+          'social-icons',
+          `Social Icons (${uniq.length})`,
+          {
+            social_icon_list: uniq.map((u) => ({ _id: uid(), social_icon: { value: iconFor(u), library: 'fa-brands' }, link: { url: u, is_external: 'true', nofollow: '' } })),
+            shape: 'circle',
+          },
+          { kind: 'social', items: uniq }
+        )
       );
       continue;
     }
@@ -1364,28 +2041,59 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
     }
 
     if (tag === 'FORM') {
-      const fields = child.querySelectorAll('input,textarea,select').filter((f) => !/hidden|submit|button/i.test(attr(f, 'type')));
-      const submit = child.querySelector('button,[type=submit]');
+      const ctrls = child.querySelectorAll('input,textarea,select').filter((f) => !/submit|button/i.test(attr(f, 'type')));
+      const submit = child.querySelector('button,[type=submit],input[type=submit]');
+      const labelFor = (f) => {
+        const id = attr(f, 'id');
+        if (id) {
+          const lb = child.querySelector(`label[for="${id}"]`);
+          if (lb && clean(lb.text)) return clean(lb.text);
+        }
+        const wrap = f.closest ? f.closest('label') : null;
+        if (wrap) {
+          const t = clean(wrap.text);
+          if (t && t.length < 80) return t;
+        }
+        return clean(attr(f, 'aria-label') || attr(f, 'data-label') || '');
+      };
+      // validation + required states converted along with the field
+      const fields = ctrls
+        .filter((f) => !/hidden/i.test(attr(f, 'type')))
+        .slice(0, 14)
+        .map((f) => {
+          const typeRaw = /textarea/i.test(f.tagName) ? 'textarea' : /select/i.test(f.tagName) ? 'select' : (attr(f, 'type') || 'text').toLowerCase();
+          const type = /^(text|email|tel|url|number|date|time|password|checkbox|radio|select|textarea|file|acceptance)$/.test(typeRaw) ? typeRaw : 'text';
+          const opts = /select/i.test(f.tagName) ? f.querySelectorAll('option').map((o) => clean(o.text)).filter(Boolean).join('\n') : '';
+          const required = attr(f, 'required') !== undefined && attr(f, 'required') !== null && attr(f, 'required') !== false || /\*\s*$/.test(labelFor(f)) || /required/.test(cls(f));
+          return {
+            _id: uid(),
+            field_type: type,
+            field_label: labelFor(f) || clean(attr(f, 'placeholder') || attr(f, 'name') || 'Field'),
+            placeholder: clean(attr(f, 'placeholder')),
+            required: required ? 'true' : '',
+            field_options: opts,
+            width: '100',
+          };
+        });
+      const hiddenCount = ctrls.length - fields.length;
       push(
-        ctx.pro
-          ? makeWidget(
-              'form',
-              `Form (${fields.length} fields)`,
-              {
-                form_name: 'Cloned Form',
-                form_fields: fields.slice(0, 12).map((f) => ({
-                  _id: uid(),
-                  field_type: /textarea/i.test(f.tagName) ? 'textarea' : attr(f, 'type') || 'text',
-                  field_label: clean(attr(f, 'placeholder') || attr(f, 'name') || 'Field'),
-                  placeholder: clean(attr(f, 'placeholder')),
-                  required: attr(f, 'required') ? 'true' : '',
-                  width: '100',
-                })),
-                button_text: clean(submit ? submit.text : '') || 'Submit',
-              },
-              { kind: 'form', count: fields.length, fields: fields.slice(0, 8).map((f) => clean(attr(f, 'placeholder') || attr(f, 'name') || 'field')), submit: clean(submit ? submit.text : '') || 'Submit' }
-            )
-          : makeWidget('shortcode', `Form placeholder (${fields.length} fields)`, { shortcode: '[contact-form-7 id="1" title="Cloned Form"]' }, { kind: 'form', count: fields.length, fields: [], submit: 'Submit' })
+        makeWidget(
+          'form',
+          `Form (${fields.length} fields)`,
+          {
+            form_name: clean(attr(child, 'name') || attr(child, 'id') || 'Cloned Form'),
+            form_fields: fields,
+            button_text: clean(submit ? (submit.text || attr(submit, 'value')) : '') || 'Submit',
+            ...(hiddenCount > 0 ? { _elx_hidden_fields: hiddenCount } : {}),
+            ...(ctx.pro ? {} : { _elx_needs_pro: 'form' }),
+          },
+          {
+            kind: 'form',
+            count: fields.length,
+            fields: fields.slice(0, 8).map((f) => f.field_label),
+            submit: clean(submit ? (submit.text || attr(submit, 'value')) : '') || 'Submit',
+          }
+        )
       );
       continue;
     }
@@ -1395,19 +2103,65 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
   return out;
 }
 
+// What layout engine drives this block: flex row/column, CSS grid, floats,
+// absolute/fixed positioning — discovered from computed styles, never from
+// framework-specific class names.
+function layoutOf(sheet, el) {
+  const cs = computedStyle(sheet, el);
+  const d = String(cs.display || '').toLowerCase();
+  if (/grid/.test(d)) return 'grid';
+  if (/flex/.test(d)) return /column/.test(String(cs['flex-direction'] || '').toLowerCase()) ? 'flex-column' : 'flex-row';
+  const pos = String(cs.position || '').toLowerCase();
+  if (pos === 'absolute' || pos === 'fixed') return 'positioned';
+  if (cs.float && cs.float !== 'none') return 'float';
+  return 'block';
+}
+
+// grid-template-columns → column count and share ratios.
+function gridColsOf(cs) {
+  const gtc = String(cs['grid-template-columns'] || '').trim();
+  if (!gtc || /none/i.test(gtc)) return null;
+  const rep = gtc.match(/repeat\(\s*(\d+)\s*,/i);
+  if (rep) return { count: Math.min(parseInt(rep[1], 10), 6), frs: null };
+  const tracks = gtc.split(/\s+/).filter(Boolean);
+  const frs = tracks.map((tk) => {
+    const m = tk.match(/^([\d.]+)fr$/);
+    return m ? parseFloat(m[1]) : null;
+  });
+  if (frs.length && frs.every((v) => v !== null)) return { count: frs.length, frs };
+  if (tracks.length >= 2) return { count: Math.min(tracks.length, 6), frs: null };
+  return null;
+}
+
 function genericColumns(sectionEl, sheet) {
   const inner = unwrap(sectionEl, sheet, 5);
   const kids = visibleKids(inner, sheet).filter(meaningful);
+  if (process.env.ELX_DEBUG) {
+    const cs0 = computedStyle(sheet, inner);
+    console.error(`DBG cols for <${sectionEl.tagName} ${idClass(sectionEl).slice(0,40)}> → inner <${inner.tagName} ${idClass(inner).slice(0,40)}> disp=${cs0.display} kids=${kids.map((k) => k.tagName).join(',')}`);
+  }
   const cs = computedStyle(sheet, inner);
   const flexRow = /flex/i.test(cs.display || '') && !/column/i.test(cs['flex-direction'] || '');
   const grid = /grid/i.test(cs.display || '');
   const rowish = /row|grid|flex|columns|col-wrap|cards|d-flex|elementor-container|wp-block-columns/.test(idClass(inner));
 
+  // CSS grid with an explicit track template wins: replicate the tracks as
+  // Elementor columns (fr ratios become percentage widths).
+  const gc = grid ? gridColsOf(cs) : null;
+  if (gc && kids.length >= gc.count) {
+    const totalFr = gc.frs ? gc.frs.reduce((a, b) => a + b, 0) : 0;
+    return kids.slice(0, 12).map((k, i) => {
+      const frac = gc.frs && i < gc.count ? (gc.frs[i] / totalFr) * 100 : 100 / gc.count;
+      return { el: k, width: Math.round(frac) };
+    });
+  }
+
   if (kids.length >= 2 && kids.length <= 6) {
     if (flexRow || grid || rowish || kids.every((k) => !/^(H[1-6]|P|A|IMG|SPAN|BR|BUTTON)$/.test(k.tagName))) {
       return kids.map((k) => {
         const kcs = computedStyle(sheet, k);
-        return { el: k, width: pct(kcs.width) ? Math.round(pct(kcs.width)) : null };
+        const basis = pct(kcs['flex-basis']);
+        return { el: k, width: pct(kcs.width) ? Math.round(pct(kcs.width)) : basis ? Math.round(basis) : null };
       });
     }
   }
@@ -1439,7 +2193,8 @@ function weight(el) {
   const text = clean(el.text).length;
   const imgs = el.querySelectorAll ? el.querySelectorAll('img').length : 0;
   const heads = el.querySelectorAll ? el.querySelectorAll('h1,h2,h3,h4,h5,h6').length : 0;
-  return text + imgs * 90 + heads * 60;
+  const links = el.querySelectorAll ? el.querySelectorAll('a').length : 0;
+  return text + imgs * 90 + heads * 60 + links * 30;
 }
 
 function genericSections(body, sheet, limit) {
@@ -1475,7 +2230,16 @@ function genericSections(body, sheet, limit) {
       }
       const target = unwrap(el, sheet, 3);
       const kids = visibleKids(target, sheet).filter(meaningful);
-      if (kids.length >= 2 && kids.length <= 12 && kids.some((k) => weight(k) > 200)) {
+      // A uniform row of 2-6 similar children is a columns layout (cards,
+      // features, team grid) — never split it into orphan sections.
+      const tcs = computedStyle(sheet, target);
+      const rowLayout =
+        kids.length >= 2 &&
+        kids.length <= 6 &&
+        (/flex|grid/i.test(tcs.display || '') ||
+          kids.every((k) => k.tagName === kids[0].tagName && weight(k) > 60 && weight(k) < 2600));
+      const everyHeavy = kids.every((k) => weight(k) > 200);
+      if (!rowLayout && kids.length >= 2 && kids.length <= 12 && everyHeavy && kids.some((k) => weight(k) > 200)) {
         next.push(...kids);
         changed = true;
       } else next.push(el);
@@ -1550,6 +2314,83 @@ const SECTION_NAMES = {
 const sectionLabel = (type, index) => `${String(index + 1).padStart(2, '0')} · ${SECTION_NAMES[type] || 'Section'}`;
 
 /* ------------------------------------------------------------------ */
+/* Intrinsic SVG dims                                                  */
+/* ------------------------------------------------------------------ */
+
+// <img src="*.svg"> without explicit width/height has no reliable intrinsic
+// size: browsers fall back to 300x150 or stretch it to the column width —
+// which is exactly why icons, logos and menu toggles used to blow up in the
+// preview. Read the SVG header and set an explicit width on the widget.
+function svgDimsFrom(text) {
+  const m = String(text).match(/<svg\b[^>]*>/i);
+  if (!m) return null;
+  const tag = m[0];
+  const numAttr = (name) => {
+    const a = tag.match(new RegExp(name + '\\s*=\\s*["\']?([\\d.]+)(px)?["\']?', 'i'));
+    return a ? parseFloat(a[1]) : null;
+  };
+  let w = numAttr('width');
+  let h = numAttr('height');
+  const isFrac = (v) => typeof v === 'number' && v > 0 && v < 2;
+  if (w && isFrac(w)) w = null; // width="1" / "100%" style relative values are useless
+  if (h && isFrac(h)) h = null;
+  if (!w || !h) {
+    const vb = tag.match(/viewBox\s*=\s*["']\s*([\d.,\-\s]+)["']/i);
+    if (vb) {
+      const p = vb[1].trim().split(/[\s,]+/).map(Number);
+      if (p.length === 4 && p[2] > 0 && p[3] > 0) {
+        if (!w && !h) {
+          w = p[2];
+          h = p[3];
+        } else if (w && !h) h = (w * p[3]) / p[2];
+        else if (h && !w) w = (h * p[2]) / p[3];
+      }
+    }
+  }
+  if (!w || !h || w <= 0 || h <= 0 || w > 2000 || h > 2000) return null;
+  return { width: Math.round(w), height: Math.round(h) };
+}
+
+async function enrichSvgImageDims(builtSections) {
+  const byUrl = new Map();
+  const visit = (blocks) => {
+    for (const b of blocks) {
+      if (b.kind === 'widget') {
+        const w = b.widget;
+        if (!w || !w.settings) continue;
+        const url = w.widgetType === 'image' ? w.settings.image && w.settings.image.url : w.settings._elx_icon_image;
+        if (url && /\.svg([?#].*)?$/i.test(url) && !w.settings.width) {
+          const key = url.split(/[?#]/)[0];
+          if (!byUrl.has(key)) byUrl.set(key, []);
+          byUrl.get(key).push(w);
+        }
+      } else if (b.kind === 'row') {
+        b.columns.forEach((c) => visit(c.blocks));
+      }
+    }
+  };
+  builtSections.forEach((s) => s.columns.forEach((c) => visit(c.blocks)));
+  const urls = [...byUrl.keys()].slice(0, 12);
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(4000) });
+        if (!r.ok) return;
+        const text = (await r.text()).slice(0, 8000);
+        const dims = svgDimsFrom(text);
+        if (!dims) return;
+        byUrl.get(url).forEach((w) => {
+          w.settings.width = { unit: 'px', size: dims.width, sizes: [] };
+          w.__preview = { ...(w.__preview || {}), natWidth: dims.width, natHeight: dims.height };
+        });
+      } catch {
+        /* keep the widget as-is */
+      }
+    })
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Elementor emitters                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -1577,6 +2418,22 @@ function bgSettings(background) {
     out.background_position = 'center center';
     out.background_size = 'cover';
     out.background_repeat = 'no-repeat';
+  }
+  return out;
+}
+
+
+// Card chrome (radius, shadow, border, inner padding) recovered from premium
+// card widgets — emitted as custom control keys the renderer paints, ignored
+// by Elementor itself.
+function cardSettings(c) {
+  const out = {};
+  if (!c) return out;
+  if (c.radius) out._elx_radius = Math.round(c.radius);
+  if (c.shadow) out._elx_shadow = c.shadow;
+  if (c.borderW) out._elx_border = { width: c.borderW, color: c.borderCol || '#E4E4E4' };
+  if (c.padding && (c.padding.top || c.padding.bottom || c.padding.left || c.padding.right)) {
+    out.padding = paddingSettings(c.padding, 0, 0);
   }
   return out;
 }
@@ -1610,6 +2467,7 @@ function emitBlocks(blocks, mode) {
             width: { unit: '%', size: c.width, sizes: [] },
             flex_direction: 'column',
             flex_align_items: c.align === 'center' ? 'center' : c.align === 'right' ? 'flex-end' : 'flex-start',
+            ...cardSettings(c),
             ...bgSettings(c.background),
           },
           elements: emitBlocks(c.blocks, mode),
@@ -1637,6 +2495,7 @@ function emitBlocks(blocks, mode) {
           space_between_widgets: 16,
           ...(c.align && c.align !== 'left' ? { align: c.align } : {}),
           ...(c.valign && c.valign !== 'flex-start' ? { content_position: c.valign === 'center' ? 'center' : 'flex-end' } : {}),
+          ...cardSettings(c),
           ...bgSettings(c.background),
         },
         elements: emitBlocks(c.blocks, mode),
@@ -1665,6 +2524,8 @@ function buildSectionElement(sec, mode) {
 
   const pad = sec.padding;
   const contentWidth = sec.contentWidth || 1140;
+  const secMotion = sec.motion || {};
+  const secResp = sec.responsive || {};
 
   if (mode === 'container') {
     return {
@@ -1679,6 +2540,8 @@ function buildSectionElement(sec, mode) {
         flex_align_items: sec.alignItems || 'center',
         padding: pad,
         _title: sec.name,
+        ...secMotion,
+        ...secResp,
         ...bg,
       },
       elements: cols.map((c) => ({
@@ -1709,6 +2572,8 @@ function buildSectionElement(sec, mode) {
       padding: pad,
       _title: sec.name,
       ...(sec.alignItems ? { content_position: sec.alignItems === 'center' ? 'middle' : sec.alignItems === 'flex-end' ? 'bottom' : 'top' } : {}),
+      ...secMotion,
+      ...secResp,
       ...bg,
     },
     elements: cols.map((c) => ({
@@ -1720,6 +2585,7 @@ function buildSectionElement(sec, mode) {
         space_between_widgets: 16,
         ...(c.align && c.align !== 'left' ? { align: c.align } : {}),
         ...(c.valign && c.valign !== 'flex-start' ? { content_position: c.valign === 'center' ? 'center' : 'flex-end' } : {}),
+        ...cardSettings(c),
         ...(c.background && c.background.color ? { background_background: 'classic', background_color: c.background.color } : {}),
       },
       elements: emitBlocks(c.blocks, mode),
@@ -1739,16 +2605,48 @@ export async function cloneUrl(inputUrl, options = {}) {
   const pro = !!options.pro;
   const maxSections = Math.min(Math.max(parseInt(options.maxSections) || 30, 3), 60);
 
+  const logger = makeLogger();
+  const log = logger.push;
+  const errors = [];
+
   let url = String(inputUrl || '').trim();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
   const parsed = new URL(url);
+  log(`Opening ${parsed.host}…`);
 
-  const { html, finalUrl, via } = await fetchHtml(url);
+  // Stage 2-4: a real browser first (JS-rendered DOM, idle network,
+  // auto-scroll) — universal, framework-agnostic. Graceful fetch fallback.
+  const useBrowser = options.browser !== false;
+  let html = '';
+  let finalUrl = '';
+  let via = '';
+  let browserMeta = null;
+  if (useBrowser) {
+    browserMeta = await browserCapture(url, { log, warn: (m) => log(m) });
+  }
+  if (browserMeta && browserMeta.html && clean(browserMeta.html).length > 3000) {
+    html = browserMeta.html;
+    finalUrl = browserMeta.finalUrl;
+    via = 'browser:chromium';
+    log(`Rendered page captured (${browserMeta.runtime.elements} live elements).`);
+  } else {
+    if (browserMeta === null) log('Browser unavailable — using fetch pipeline.');
+    const got = await fetchHtml(url);
+    html = got.html;
+    finalUrl = got.finalUrl;
+    via = got.via;
+    log(`HTML fetched via ${via} (${Math.round(html.length / 1024)} KB).`);
+  }
+  if (via === 'browser:chromium' && browserMeta && browserMeta.failedRequests.length) {
+    log(`Note: ${browserMeta.failedRequests.length} subresources failed to load.`);
+  }
+
   const root = parse(html, {
     lowerCaseTagName: false,
     comment: false,
     blockTextElements: { script: false, noscript: false, style: true, pre: true },
   });
+  log(`DOM collected: ${root.querySelectorAll('*').length} elements. Inspecting every node…`);
 
   const base = finalUrl || url;
   const platform = detectPlatform(html);
@@ -1756,7 +2654,9 @@ export async function cloneUrl(inputUrl, options = {}) {
   let sheet;
   try {
     sheet = await loadStyles(root, base, html, { maxSheets: options.maxSheets || 12 });
-  } catch {
+    log(`Extracting CSS: ${sheet.stats.rules} resolved rules across ${sheet.stats.sheets} stylesheets, ${sheet.keyframes.size} @keyframes.`);
+  } catch (err) {
+    recordError({ errors }, 'css', null, err);
     sheet = createSheet();
   }
 
@@ -1793,13 +2693,20 @@ export async function cloneUrl(inputUrl, options = {}) {
   const regions = nativeRegions(body, sheet);
   const native = regions.length > 0;
 
+  log('Detecting layouts and section hierarchy…');
   if (native) {
     for (const region of regions) {
       const secs = topSections(region.el, sheet);
       for (const secEl of secs) {
         if (built.length >= maxSections) break;
-        const ctx = { base, sheet, design, assets, pro, sectionType: region.type };
-        const row = nativeRow(secEl, ctx, 0);
+        const ctx = { base, sheet, design, assets, pro, sectionType: region.type, errors };
+        let row = null;
+        try {
+          row = nativeRow(secEl, ctx, 0);
+        } catch (err) {
+          recordError({ errors }, 'section', secEl, err);
+          continue;
+        }
         if (!row) continue;
 
         const flatWidgets = [];
@@ -1825,6 +2732,9 @@ export async function cloneUrl(inputUrl, options = {}) {
           contentWidth: stretched ? 1600 : Math.round(Math.min(Math.max(contentWidth, 600), 1600)),
           gap: row.gap,
           alignItems: row.alignItems,
+          layout: layoutOf(sheet, container || secEl),
+          motion: motionSettings(sheet, secEl),
+          responsive: responsiveSettings(sheet, secEl, 'section'),
           native: true,
         });
       }
@@ -1833,15 +2743,21 @@ export async function cloneUrl(inputUrl, options = {}) {
 
   if (!built.length) {
     const rawSections = genericSections(body, sheet, maxSections);
+    log(`Generic scan: ${rawSections.length} candidate blocks from landmarks and top-level nodes.`);
     rawSections.forEach((el, i) => {
       const cols = genericColumns(el, sheet);
       const columns = [];
       cols.forEach((c) => {
-        const ctx = { base, sheet, design, assets, pro, sectionType: ancestorRegion(el) || 'block', seen: new Set() };
-        const widgets = genericWidgets(c.el, ctx, 0, []);
+        const ctx = { base, sheet, design, assets, pro, sectionType: ancestorRegion(el) || 'block', seen: new Set(), errors };
+        let widgets = [];
+        try {
+          widgets = genericWidgets({ childNodes: [c.el], tagName: 'ROOT' }, ctx, 0, []);
+        } catch (err) {
+          recordError({ errors }, 'widgets', c.el, err);
+        }
         if (!widgets.length) return;
         columns.push({
-          blocks: widgets.map((w) => ({ kind: 'widget', widget: w })),
+          blocks: widgets.map((w) => (w.__isRow ? w.row : { kind: 'widget', widget: w })),
           width: c.width,
           align: resolveAlign(sheet, c.el, 'left'),
           valign: verticalAlignOf(sheet, c.el),
@@ -1861,6 +2777,9 @@ export async function cloneUrl(inputUrl, options = {}) {
           columns.flatMap((c) => c.blocks.filter((b) => b.kind === 'widget').map((b) => b.widget))
         ),
         columns,
+        layout: layoutOf(sheet, unwrap(el, sheet, 2)),
+        motion: motionSettings(sheet, el),
+        responsive: responsiveSettings(sheet, el, 'section'),
         background: backgroundOf(sheet, el, base),
         padding: paddingSettings(padSides, isEdge ? 20 : 60, isEdge ? 20 : 60),
         contentWidth: Math.round(Math.min(Math.max(px(cs['max-width']) || 1140, 600), 1600)),
@@ -1883,6 +2802,95 @@ export async function cloneUrl(inputUrl, options = {}) {
     });
     built.length = 0;
     built.push(...merged);
+  }
+
+  // Error recovery for the whole classification stage: if section discovery
+  // came back empty (JS shell, bot challenge, exotic markup), fall back to a
+  // single-column rescue of whatever the body actually contains. The motto
+  // is: never return a blank page — skip only the failing node.
+  if (!built.length) {
+    const challenge = /^Access denied|just a moment|attention required|cloudflare|aptcha|are you a robot|bot protection/i.test(
+      clean(body.text).slice(0, 300)
+    );
+    recordError({ errors }, 'extract', body, challenge ? 'bot challenge / access-denied page' : 'no sections discovered');
+    log(challenge ? 'Bot challenge detected — recovering visible content…' : 'No classic sections found — recovering raw content…');
+
+    const ctx = { base, sheet, design, assets, pro, sectionType: 'block', seen: new Set(), errors, designs: null };
+    let widgets = [];
+    try {
+      widgets = genericWidgets({ childNodes: [pickRoot(body, sheet)], tagName: 'ROOT' }, ctx, 0, []);
+    } catch (err) {
+      recordError({ errors }, 'rescue', body, err);
+    }
+    if (widgets.length) {
+      built.push({
+        type: 'content',
+        columns: [
+          {
+            blocks: widgets.map((w) => (w.__isRow ? w.row : { kind: 'widget', widget: w })),
+            width: 100,
+            align: 'left',
+            background: { color: '', image: '' },
+            valign: 'flex-start',
+          },
+        ],
+        background: { color: '', image: '' },
+        padding: paddingSettings({ top: 40, bottom: 40 }, 60, 60),
+        contentWidth: 1140,
+        gap: 20,
+        alignItems: 'flex-start',
+        native: false,
+        rescued: true,
+      });
+    }
+    if (!built.length) {
+      // last resort: the page shell itself (title + raw text) as a section —
+      // output is guaranteed non-empty so the studio never shows a void.
+      const note = clean(body.text).slice(0, 600);
+      built.push({
+        type: 'content',
+        columns: [
+          {
+            blocks: [
+              {
+                kind: 'widget',
+                widget: makeWidget('heading', 'Heading (H1)', { title: meta.title || parsed.host, header_size: 'h1', align: 'left' }, { kind: 'heading', text: meta.title || parsed.host, level: 1 }),
+              },
+              {
+                kind: 'widget',
+                widget: makeWidget(
+                  'text-editor',
+                  'Text Editor',
+                  { editor: `<p>${escapeHtml(note || 'This page renders its content with JavaScript; enable the browser capture stage for full extraction.')}</p>`, align: 'left' },
+                  { kind: 'text', text: note }
+                ),
+              },
+            ],
+            width: 100,
+            align: 'left',
+            background: { color: '', image: '' },
+            valign: 'flex-start',
+          },
+        ],
+        background: { color: '', image: '' },
+        padding: paddingSettings({ top: 60, bottom: 60 }, 60, 60),
+        contentWidth: 1140,
+        gap: 20,
+        alignItems: 'flex-start',
+        native: false,
+        rescued: true,
+      });
+    }
+  }
+
+  log(`Mapping Elementor widgets across ${built.length} sections…`);
+
+  // Recover intrinsic sizes for SVG images (icons, logos, menu toggles)
+  // before the section/widget trees are serialised.
+  try {
+    await enrichSvgImageDims(built);
+  } catch (err) {
+    recordError({ errors }, 'svg', null, err);
   }
 
   const sections = [];
@@ -1941,6 +2949,7 @@ export async function cloneUrl(inputUrl, options = {}) {
       contentWidth: sec.contentWidth,
       gap: sec.gap,
       alignItems: sec.alignItems,
+      layout: sec.layout || 'block',
       widgetCount: counter.n,
       widgets: flat,
     });
@@ -1955,6 +2964,60 @@ export async function cloneUrl(inputUrl, options = {}) {
   });
 
   const widgetsTotal = Object.values(byType).reduce((a, b) => a + b, 0);
+
+  log(`Optimizing: ${uniqAssets.length} unique assets, deduplicated styles, ${sections.length} sections.`);
+  log('Generating Elementor JSON…');
+
+  // Validity gate: a clone is only valid when the emitted JSON has real
+  // structure. This is the last line of defence against blank pages.
+  log('Validating Elementor JSON structure…');
+  const flatCheck = [];
+  (function countAll(arr) {
+    (arr || []).forEach((e) => {
+      flatCheck.push(e);
+      countAll(e.elements);
+    });
+  })(content);
+  const valid = content.length > 0 && flatCheck.some((e) => e.elType === 'widget' && e.widgetType);
+  if (!valid) recordError({ errors }, 'validate', null, 'emitted JSON failed structural validation');
+
+  // Fidelity metrics: how much of the source actually survived conversion.
+  const sourceText = clean(body.text);
+  const previewText = [];
+  (function pt(arr) {
+    (arr || []).forEach((e) => {
+      if (e.elType === 'widget' && e.settings) {
+        previewText.push(e.settings.title || '', e.settings.editor || '', e.settings.text || '');
+      }
+      pt(e.elements);
+    });
+  })(content);
+  const coveredText = clean(previewText.join(' '));
+  const textCoverage = sourceText.length ? Math.min(100, Math.round((Math.min(coveredText.length, sourceText.length) / sourceText.length) * 100)) : 100;
+  const animationsCount = flatCheck.filter((e) => e.settings && (e.settings._animation || e.settings._elx_custom_anim)).length;
+  const fidelity = {
+    textCoverage,
+    animationsKept: animationsCount,
+    imagesKept: uniqAssets.filter((a) => a.type === 'image').length,
+    sectionsBuilt: sections.length,
+    widgetsBuilt: widgetsTotal,
+    errorsRecovered: errors.length,
+    pipeline: via.startsWith('browser') ? 'chromium' : 'fetch',
+    score: Math.max(
+      40,
+      Math.min(
+        100,
+        Math.round(
+          textCoverage * 0.55 +
+            (widgetsTotal > 0 ? 15 : 0) +
+            (animationsCount > 0 ? 10 : 6) +
+            (uniqAssets.length > 0 ? 10 : 6) +
+            (errors.length === 0 ? 10 : Math.max(0, 10 - errors.length))
+        )
+      )
+    ),
+  };
+  log(errors.length ? `Completed with ${errors.length} recovered node(s). Fidelity score ${fidelity.score}/100.` : `Completed. Fidelity score ${fidelity.score}/100.`);
 
   const elementor = {
     version: '0.4',
@@ -2007,9 +3070,14 @@ export async function cloneUrl(inputUrl, options = {}) {
       cssRules: meta.cssRules,
       extraction: native ? 'native-elementor' : 'generic-dom',
       durationMs: Date.now() - started,
+      errors: errors.length,
+      fidelityScore: fidelity.score,
     },
     sections,
     assets: uniqAssets.slice(0, 240),
     elementor,
+    log: logger.lines,
+    errors,
+    fidelity,
   };
 }

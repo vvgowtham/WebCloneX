@@ -1,5 +1,5 @@
 import { SectionTitle, Tag } from '../components/Bits';
-import { Upload, MousePointerClick, Image as ImageIcon, ShieldCheck, Braces, Workflow } from 'lucide-react';
+import { Upload, MousePointerClick, Image as ImageIcon, ShieldCheck, Braces, Workflow, Columns2 } from 'lucide-react';
 
 const STEPS = [
   {
@@ -16,18 +16,24 @@ const STEPS = [
   },
   {
     n: '03',
-    icon: Braces,
-    t: 'Review the generated tree',
-    d: 'Inspect sections, columns and each mapped widget with its extracted content. Switch to Block preview to see a visual approximation, or JSON to read the raw template.',
+    icon: Columns2,
+    t: 'Compare live, side by side',
+    d: 'The Live compare tab embeds the source site (served through our proxy so X-Frame-Options never blocks it) next to a faithful HTML render of the exported Elementor JSON itself — not an approximation. Both panes run at the same viewport with synchronised scrolling and per-section jumping, so layout, alignment and colour mismatches are visible at a glance.',
   },
   {
     n: '04',
+    icon: Braces,
+    t: 'Review the generated tree',
+    d: 'Inspect sections, columns and each mapped widget with its extracted content. Switch to Block preview for a schematic overview, or JSON to read the raw template file.',
+  },
+  {
+    n: '05',
     icon: Upload,
     t: 'Import into WordPress',
     d: 'Download the .json file, then in WordPress go to Templates → Saved Templates → Import Templates and upload it. Insert the template on any page from the Elementor library.',
   },
   {
-    n: '05',
+    n: '06',
     icon: ImageIcon,
     t: 'Localise the media',
     d: 'Images are referenced by their original absolute URLs so the layout renders immediately. Use any "import external images" plugin to pull them into the Media Library before going live.',

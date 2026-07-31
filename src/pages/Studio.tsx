@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Globe, Zap, Layers, Image as ImageIcon, Palette, Clock, Download, Sparkles, Settings2, ChevronDown, Eye, Braces, ListTree, Boxes, ExternalLink,
+  Globe, Zap, Layers, Image as ImageIcon, Palette, Clock, Download, Sparkles, Settings2, ChevronDown, Eye, Braces, ListTree, Boxes, ExternalLink, Columns2,
+  Terminal, Gauge, ShieldCheck, TriangleAlert,
 } from 'lucide-react';
 import type { CloneResult, SampleRow } from '../lib/types';
 import { Tag, Stat, Spinner, ErrorBox } from '../components/Bits';
 import StructureTree from '../components/StructureTree';
 import JsonViewer from '../components/JsonViewer';
 import RenderPreview from '../components/RenderPreview';
+import CompareDeck from '../components/CompareDeck';
 
+// Mirror of the engine's real pipeline stages (result.log carries the actual
+// timestamped lines once conversion completes).
 const PHASES = [
-  'Resolving host & fetching HTML…',
-  'Stripping scripts, styles & hidden nodes…',
-  'Detecting page sections and column grids…',
-  'Mapping DOM nodes → Elementor widgets…',
-  'Extracting colors, fonts and media assets…',
-  'Serialising Elementor template JSON…',
+  'Opening website…',
+  'Loading scripts & network…',
+  'Scrolling for lazy content…',
+  'Collecting DOM…',
+  'Extracting CSS…',
+  'Detecting layouts…',
+  'Mapping Elementor widgets…',
+  'Generating JSON…',
+  'Optimizing…',
+  'Validating…',
 ];
 
-type Tab = 'structure' | 'preview' | 'json' | 'assets';
+type Tab = 'compare' | 'structure' | 'preview' | 'json' | 'assets';
 
 export default function Studio() {
   const [url, setUrl] = useState('https://polytechpvcprofile.com/');
@@ -44,8 +52,7 @@ export default function Studio() {
 
   useEffect(() => {
     if (!loading) return;
-    setPhase(0);
-    const t = setInterval(() => setPhase((p) => (p + 1) % PHASES.length), 1300);
+    const t = setInterval(() => setPhase((p) => Math.min(p + 1, PHASES.length - 1)), 1100);
     return () => clearInterval(t);
   }, [loading]);
 
@@ -59,6 +66,7 @@ export default function Studio() {
       setUrlError('');
       setError('');
       setLoading(true);
+      setPhase(0);
       setResult(null);
       try {
         const res = await fetch('/api/clone', {
@@ -69,7 +77,7 @@ export default function Studio() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
         setResult(data);
-        setTab('structure');
+        setTab('compare');
         setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Unknown error');
@@ -212,7 +220,7 @@ export default function Studio() {
             <div className="mt-3 h-1 overflow-hidden rounded-full bg-edge">
               <div className="sweep h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-volt to-transparent" />
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
               {PHASES.map((p, i) => (
                 <div key={p} className={`flex items-center gap-1.5 font-mono text-[10px] ${i <= phase ? 'text-volt' : 'text-dim'}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${i === phase ? 'bg-volt pulse-dot' : i < phase ? 'bg-volt' : 'bg-edge2'}`} />
@@ -260,14 +268,92 @@ export default function Studio() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
             <Stat label="sections" value={result.stats.sections} accent="#d8ff3e" />
             <Stat label="widgets" value={result.stats.widgets} accent="#3ee0ff" />
             <Stat label="images" value={result.stats.images} accent="#ff5cad" />
             <Stat label="css rules" value={result.stats.cssRules ?? 0} />
             <Stat label="json size" value={`${result.stats.jsonKb} KB`} />
             <Stat label="duration" value={`${(result.stats.durationMs / 1000).toFixed(2)}s`} accent="#ffb547" />
+            <Stat label="fidelity" value={result.stats.fidelityScore != null ? `${result.stats.fidelityScore}/100` : '—'} accent="#d8ff3e" />
+            <Stat label="recovered" value={result.stats.errors ?? 0} accent={(result.stats.errors ?? 0) > 0 ? '#ffb547' : '#d8ff3e'} />
           </div>
+
+          {/* conversion pipeline: real log + fidelity + error recovery */}
+          {(result.log?.length || result.fidelity) && (
+            <div className="glass rounded-2xl p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Terminal size={15} className="text-volt" />
+                <span className="font-display text-sm font-semibold">Conversion pipeline</span>
+                {result.fidelity && (
+                  <Tag tone={result.fidelity.pipeline === 'chromium' ? 'volt' : 'edge'}>
+                    {result.fidelity.pipeline === 'chromium' ? 'chromium engine' : 'fetch engine'}
+                  </Tag>
+                )}
+              </div>
+              <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_210px]">
+                <div className="max-h-64 overflow-y-auto rounded-xl border border-edge bg-void/70 p-3 font-mono text-[11px] leading-relaxed">
+                  {(result.log || []).map((line, i) => {
+                    const m = line.match(/^\[\+([\d.]+)s\]\s?(.*)$/);
+                    const done = /Completed/.test(line);
+                    return (
+                      <div key={i} className="flex gap-2">
+                        <span className="w-12 shrink-0 text-right text-dim">+{m ? m[1] : '0.0'}s</span>
+                        <span className={done ? 'text-volt' : 'text-muted'}>{m ? m[2] : line}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {result.fidelity && (
+                  <div className="flex flex-col items-center justify-center rounded-xl border border-edge bg-void/60 p-3 text-center">
+                    <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-dim">
+                      <Gauge size={11} /> fidelity
+                    </div>
+                    <div className={`mt-1 font-display text-4xl font-black ${result.fidelity.score >= 90 ? 'text-volt' : result.fidelity.score >= 70 ? 'text-cyan' : 'text-amber'}`}>
+                      {result.fidelity.score}
+                    </div>
+                    <div className="font-mono text-[10px] text-dim">/ 100</div>
+                    <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                      <Tag tone="cyan">text {result.fidelity.textCoverage}%</Tag>
+                      <Tag>{result.fidelity.animationsKept} anims</Tag>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {result.fidelity && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Tag tone="cyan">text coverage {result.fidelity.textCoverage}%</Tag>
+                  <Tag>{result.fidelity.animationsKept} animations kept</Tag>
+                  <Tag>{result.fidelity.imagesKept} images kept</Tag>
+                  <Tag>
+                    {result.fidelity.sectionsBuilt} sections · {result.fidelity.widgetsBuilt} widgets
+                  </Tag>
+                  <Tag tone={result.fidelity.errorsRecovered ? 'amber' : 'volt'}>{result.fidelity.errorsRecovered} recovered nodes</Tag>
+                </div>
+              )}
+              <div className="mt-3">
+                {result.errors?.length ? (
+                  <div className="rounded-xl border border-amber/30 bg-amber/5 p-3">
+                    <div className="flex items-center gap-2 font-mono text-[11px] text-amber">
+                      <TriangleAlert size={12} /> {result.errors.length} node(s) failed & were skipped — conversion continued, no blank page
+                    </div>
+                    <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
+                      {result.errors.map((e, i) => (
+                        <div key={i} className="rounded-lg border border-edge2 bg-void/60 px-2 py-1.5 font-mono text-[10px] leading-relaxed">
+                          <span className="text-amber">[{e.stage}]</span> <span className="text-cyan">{e.node || 'document'}</span>{' '}
+                          <span className="text-dim">→ {e.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl border border-volt/25 bg-volt/5 px-3 py-2 font-mono text-[11px] text-volt">
+                    <ShieldCheck size={12} /> error recovery active — every node converted cleanly, nothing skipped
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* design tokens */}
           <div className="glass rounded-2xl p-4">
@@ -317,6 +403,7 @@ export default function Studio() {
           {/* tabs */}
           <div className="flex flex-wrap items-center gap-2">
             {[
+              { k: 'compare' as Tab, l: 'Live compare', i: Columns2 },
               { k: 'structure' as Tab, l: 'Structure tree', i: ListTree },
               { k: 'preview' as Tab, l: 'Block preview', i: Eye },
               { k: 'json' as Tab, l: 'Elementor JSON', i: Braces },
@@ -337,6 +424,7 @@ export default function Studio() {
             </div>
           </div>
 
+          {tab === 'compare' && <CompareDeck result={result} />}
           {tab === 'structure' && <StructureTree sections={result.sections} />}
           {tab === 'preview' && <RenderPreview sections={result.sections} primary={result.design.primary} />}
           {tab === 'json' && (

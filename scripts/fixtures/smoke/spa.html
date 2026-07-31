@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loopboard — SaaS</title>
+<meta name="description" content="SPA archetype: deep #root nesting, utility-first CSS, feature cards, pricing.">
+<style>
+  /* utility-first subset — what Tailwind emits after purging */
+  .m-0{margin:0}.mx-auto{margin-left:auto;margin-right:auto}
+  .max-w-6xl{max-width:72rem}.w-full{width:100%}
+  .flex{display:flex}.grid{display:grid}.block{display:block}
+  .items-center{align-items:center}.justify-between{justify-content:space-between}
+  .flex-col{flex-direction:column}.gap-2{gap:.5rem}.gap-4{gap:1rem}.gap-6{gap:1.5rem}.gap-8{gap:2rem}
+  .px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}
+  .py-3{padding-top:.75rem;padding-bottom:.75rem}.py-12{padding-top:3rem;padding-bottom:3rem}.py-20{padding-top:5rem;padding-bottom:5rem}
+  .text-center{text-align:center}.text-white{color:#fff}.text-slate-600{color:#475569}.text-slate-400{color:#94a3b8}.text-indigo-600{color:#4f46e5}
+  .text-sm{font-size:.875rem}.text-lg{font-size:1.125rem}.text-2xl{font-size:1.5rem}.text-4xl{font-size:2.25rem}.text-5xl{font-size:3rem}
+  .font-bold{font-weight:700}.font-extrabold{font-weight:800}
+  .bg-white{background:#fff}.bg-slate-50{background:#f8fafc}.bg-indigo-600{background:#4f46e5}.bg-slate-900{background:#0f172a}
+  .rounded-xl{border-radius:.75rem}.rounded-full{border-radius:9999px}
+  .shadow-lg{box-shadow:0 10px 25px rgba(2,6,23,.08)}
+  .grid-cols-3{grid-template-columns:repeat(3,1fr)}.grid-cols-2{grid-template-columns:repeat(2,1fr)}
+  .leading-tight{line-height:1.2}
+  .no-underline{text-decoration:none}.hidden{display:none}
+  .gradient{background:linear-gradient(120deg,#4f46e5,#9333ea)}
+  .card-hover{transition:transform .3s ease,box-shadow .3s ease}
+  .card-hover:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(2,6,23,.13)}
+  @media (max-width: 767px){
+    .grid-cols-3{grid-template-columns:1fr}
+    .grid-cols-2{grid-template-columns:1fr}
+    .text-5xl{font-size:2.1rem}
+    .nav-links{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="app-shell">
+    <div class="page">
+      <header class="bg-white">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <a href="/" class="no-underline font-extrabold text-2xl text-indigo-600">Loopboard</a>
+          <nav class="flex gap-6 text-sm nav-links">
+            <a href="#features" class="no-underline text-slate-600">Features</a>
+            <a href="#pricing" class="no-underline text-slate-600">Pricing</a>
+            <a href="#faq" class="no-underline text-slate-600">FAQ</a>
+            <a href="#login" class="no-underline text-slate-600">Log in</a>
+          </nav>
+          <a href="#signup" class="bg-indigo-600 text-white rounded-full px-6 py-3 no-underline text-sm font-bold">Start free</a>
+        </div>
+      </header>
+
+      <main>
+        <section class="gradient text-white text-center py-20">
+          <div class="max-w-6xl mx-auto px-4">
+            <h1 class="text-5xl font-extrabold m-0 leading-tight" data-aos="fade-up">Ship product feedback loops in minutes</h1>
+            <p class="text-lg text-white" style="opacity:.85">Loopboard turns scattered user feedback into a ranked roadmap your whole team trusts.</p>
+            <div class="py-3">
+              <a href="#signup" class="bg-white text-indigo-600 rounded-full px-6 py-3 no-underline font-bold">Create workspace</a>
+            </div>
+          </div>
+        </section>
+
+        <section id="features" class="py-20 bg-slate-50">
+          <div class="max-w-6xl mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center m-0">Everything connects</h2>
+            <p class="text-center text-slate-600">One loop from request to release note.</p>
+            <div class="grid grid-cols-3 gap-6 py-12">
+              <div class="bg-white rounded-xl shadow-lg p-6 card-hover" data-aos="zoom-in">
+                <h3 class="text-2xl m-0">Capture</h3>
+                <p class="text-slate-600 text-sm">Widget, portal and integrations funnel every request into one inbox.</p>
+              </div>
+              <div class="bg-white rounded-xl shadow-lg p-6 card-hover" data-aos="zoom-in">
+                <h3 class="text-2xl m-0">Prioritise</h3>
+                <p class="text-slate-600 text-sm">Score by reach, effort and revenue with your own weighting model.</p>
+              </div>
+              <div class="bg-white rounded-xl shadow-lg p-6 card-hover" data-aos="zoom-in">
+                <h3 class="text-2xl m-0">Close the loop</h3>
+                <p class="text-slate-600 text-sm">Auto-notify voters the moment their request ships.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" class="py-20 bg-white">
+          <div class="max-w-6xl mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center m-0">Simple pricing</h2>
+            <div class="grid grid-cols-2 gap-8 py-12" style="max-width:56rem;margin:0 auto">
+              <div class="rounded-xl shadow-lg p-6 bg-white card-hover">
+                <h3 class="text-2xl m-0">Starter</h3>
+                <div class="text-5xl font-extrabold text-indigo-600">$0</div>
+                <ul class="text-slate-600 text-sm">
+                  <li>Up to 100 feedback posts</li>
+                  <li>1 roadmap</li>
+                  <li>Community support</li>
+                </ul>
+              </div>
+              <div class="rounded-xl shadow-lg p-6 bg-white card-hover">
+                <h3 class="text-2xl m-0">Scale</h3>
+                <div class="text-5xl font-extrabold text-indigo-600">$49</div>
+                <ul class="text-slate-600 text-sm">
+                  <li>Unlimited posts and voters</li>
+                  <li>Advanced scoring + SSO</li>
+                  <li>Priority support</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="py-12 bg-slate-50">
+          <div class="max-w-6xl mx-auto px-4 text-center">
+            <blockquote class="text-2xl" style="font-style:italic">“We replaced four tools with Loopboard in a single sprint.”</blockquote>
+            <div class="text-slate-400 text-sm">Mira Chen — VP Product, Freightos</div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="bg-slate-900 text-slate-400 py-12">
+        <div class="max-w-6xl mx-auto px-4 flex justify-between items-center">
+          <div class="font-bold text-white">Loopboard</div>
+          <div class="text-sm">© 2026 Loopboard Inc. · Privacy · Terms</div>
+        </div>
+      </footer>
+    </div>
+  </div>
+</div>
+</body>
+</html>
