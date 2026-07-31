@@ -1,0 +1,96 @@
+/* Fixture theme stylesheet — exercises the cascade engine the way a real
+   WordPress + Elementor site does (kit vars, section rules, widget styles). */
+:root {
+  --brand-green: #5cb431;
+  --brand-dark: #0d3b1e;
+  --ink: #2b2b2b;
+  --muted: #666;
+}
+html { margin: 0; }
+body {
+  margin: 0;
+  font-family: "Poppins", sans-serif;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.6;
+  background: #fff;
+}
+img { max-width: 100%; height: auto; border: 0; }
+
+/* header regions -------------------------------------------------------- */
+.elx-topbar { background: var(--brand-green); color: #fff; }
+.elx-topbar .elementor-container { max-width: 1200px; margin: 0 auto; padding: 6px 20px; justify-content: center; }
+.elx-topbar .elementor-icon-list-items { display: flex; gap: 38px; align-items: center; }
+.elx-topbar .elementor-icon-list-item, .elx-topbar a { color: #fff; font-size: 14px; }
+.elx-topbar .elementor-icon-list-icon svg { width: 14px; height: 14px; fill: #fff; }
+.elx-topbar a { text-decoration: none; }
+
+.elx-navbar .elementor-container { max-width: 1200px; margin: 0 auto; padding: 10px 20px; align-items: center; }
+.elx-navbar .logo-column { align-items: flex-start; justify-content: center; }
+.elx-navbar .menu-column { flex-direction: row; align-items: center; justify-content: flex-end; gap: 22px; }
+.elx-navbar .elementor-nav-menu { display: flex; gap: 26px; list-style: none; margin: 0; padding: 0; align-items: center; }
+.elx-navbar .elementor-nav-menu a { color: #222; font-size: 15px; font-weight: 500; text-decoration: none; }
+.elx-navbar .elementor-nav-menu a:hover { color: var(--brand-green); }
+.elx-navbar .menu-toggle-anchor { display: flex; align-items: center; }
+
+/* hero ------------------------------------------------------------------ */
+.elx-hero { padding: 0; }
+.elx-hero img { display: block; width: 100%; }
+
+/* content --------------------------------------------------------------- */
+.elx-intro { padding: 70px 20px 60px; }
+.elx-intro .elementor-container { max-width: 1140px; margin: 0 auto; }
+.center-col { text-align: center; }
+.elx-intro h2 { color: #123f28; margin: 0 0 8px; }
+.elx-intro p { color: var(--muted); max-width: 760px; margin: 0 auto 22px; }
+
+.elx-clients { padding: 20px 20px 70px; }
+.elx-clients .elementor-container { max-width: 1140px; margin: 0 auto; }
+
+.elx-features { background: #f4f7f3; padding: 64px 20px; }
+.elx-features .elementor-container { max-width: 1140px; margin: 0 auto; }
+.elx-icon-box { text-align: center; padding: 22px; }
+.elx-icon-box .elementor-icon-box-icon { font-size: 42px; color: var(--brand-green); margin-bottom: 10px; }
+.elx-icon-box-title { font-size: 18px; color: #123f28; margin: 0 0 6px; }
+.elx-icon-box-description { color: var(--muted); font-size: 14px; }
+
+.elx-sustain { padding: 64px 20px; }
+.elx-sustain .elementor-container { max-width: 1140px; margin: 0 auto; align-items: center; }
+.elx-sustain h2 { color: #123f28; }
+
+.elx-products { padding: 64px 20px; background: #fff; }
+.elx-products .elementor-container { max-width: 1140px; margin: 0 auto; }
+.elx-products h3 { margin: 10px 0 0; font-size: 16px; color: #123f28; text-align: center; }
+
+.elx-cta { background: var(--brand-dark); color: #fff; padding: 70px 20px; }
+.elx-cta .elementor-container { max-width: 900px; margin: 0 auto; }
+.elx-cta h2 { color: #fff; }
+.elx-cta p { color: #d8e6db; }
+
+.elx-gallery { padding: 64px 20px; }
+.elx-gallery .elementor-container { max-width: 1140px; margin: 0 auto; }
+.elx-gallery .attachments { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.elx-gallery .attachments img { width: 100%; height: 190px; object-fit: cover; border-radius: 6px; }
+
+/* footer ---------------------------------------------------------------- */
+.elx-footer { background: #101d15; color: #cfddd2; padding: 56px 20px 30px; }
+.elx-footer .elementor-container { max-width: 1140px; margin: 0 auto; gap: 30px; }
+.elx-footer h4 { color: #fff; margin: 0 0 14px; font-size: 17px; }
+.elx-footer a { color: #cfddd2; text-decoration: none; }
+.elx-footer .elementor-icon-list-item { margin-bottom: 10px; }
+.elx-copy { background: #0b1510; color: #9ab3a1; text-align: center; padding: 14px 20px; font-size: 13px; }
+
+/* buttons --------------------------------------------------------------- */
+.elx-btn .elementor-button, .elx-btn a {
+  display: inline-block;
+  background: var(--brand-green);
+  color: #fff;
+  padding: 12px 26px;
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+/* hidden bits ------------------------------------------------------------ */
+.elx-hidden-tablet { display: none !important; }

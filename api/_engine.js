@@ -130,7 +130,7 @@ function isTracker(url) {
 /* Fetch                                                               */
 /* ------------------------------------------------------------------ */
 
-async function fetchHtml(url) {
+export async function fetchHtml(url) {
   const headers = {
     'User-Agent': UA,
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -307,12 +307,13 @@ function resolveAlign(sheet, el, fallback = 'left') {
     const ta = (cs['text-align'] || '').toLowerCase();
     if (ta && ta !== 'start' && ta !== 'inherit') return ta === 'end' ? 'right' : ta;
     if (ta === 'start') return 'left';
-    // flex containers: justify-content maps to visual alignment
+    // flex containers map their main/cross axis to visual alignment
     if (/flex/i.test(cs.display || '')) {
-      const jc = (cs['justify-content'] || '').toLowerCase();
-      if (/center/.test(jc)) return 'center';
-      if (/flex-end|end|right/.test(jc)) return 'right';
-      if (/flex-start|start|left/.test(jc)) return 'left';
+      const dir = /column/.test((cs['flex-direction'] || '').toLowerCase());
+      const val = (dir ? cs['align-items'] || '' : cs['justify-content'] || '').toLowerCase();
+      if (/center/.test(val)) return 'center';
+      if (/flex-end|end|right/.test(val)) return 'right';
+      if (!dir && /flex-start|start|left/.test(val)) return 'left';
     }
     node = node.parentNode;
   }
@@ -467,6 +468,8 @@ function widgetWidthOf(sheet, el) {
   if (/elementor-widget__width-auto/.test(c)) return { mode: 'auto' };
   if (/elementor-widget__width-inherit/.test(c)) return { mode: 'full' };
   const cs = computedStyle(sheet, el);
+  // Widgets displayed inline-block size to their content — keep them compact.
+  if (/inline-block|inline-flex/.test(cs.display || '')) return { mode: 'auto' };
   const p = pct(cs.width) ?? pct(cs['max-width']);
   if (p && p < 99) return { mode: 'pct', value: Math.round(p) };
   return { mode: 'full' };
@@ -612,10 +615,20 @@ function convertNativeWidget(el, ctx) {
         })
         .filter((e) => e.text);
       if (!entries.length) return null;
-      const iconSvg = box.querySelector('svg');
-      const iconColor = iconSvg ? normColor(attr(iconSvg.querySelector('path') || iconSvg, 'fill')) : '';
+      // Icon colour: explicit svg fill wins, then the icon slot's css colour,
+      // then the item's computed text colour, then the brand primary.
+      const svgEl = box.querySelector('svg');
+      const iconSlot = box.querySelector('.elementor-icon-list-icon');
+      const firstItem = box.querySelector('.elementor-icon-list-item a, .elementor-icon-list-item');
+      let iconColor = '';
+      if (svgEl) iconColor = normColor(attr(svgEl.querySelector('path') || svgEl, 'fill'));
+      if (!iconColor && iconSlot) iconColor = normColor(computedStyle(sheet, iconSlot).color);
+      const itemColor = firstItem ? normColor(computedStyle(sheet, firstItem).color) : '';
+      if (!iconColor) iconColor = itemColor;
       const align = resolveAlign(sheet, el, inline ? 'center' : 'left');
       const t = typoFrom(sheet, box, 15);
+      const textColor = normColor(computedStyle(sheet, box.querySelector('.elementor-icon-list-text') || box).color) || itemColor || t.color;
+      const finalIcon = iconColor || ctx.design.primary;
       const w = makeWidget(
         'icon-list',
         `${label}${inline ? ' (inline)' : ''}`,
@@ -628,11 +641,12 @@ function convertNativeWidget(el, ctx) {
             link: { url: e.url, is_external: 'true', nofollow: '' },
           })),
           space_between: { unit: 'px', size: inline ? 40 : 12, sizes: [] },
-          icon_color: iconColor || ctx.design.primary,
+          icon_color: finalIcon,
+          ...(textColor ? { text_color: textColor } : {}),
           align,
           ...typo('icon_typography_', t),
         },
-        { kind: 'list', items: entries.map((e) => e.text), inline, iconColor: iconColor || ctx.design.primary, color: t.color }
+        { kind: 'list', items: entries.map((e) => e.text), inline, iconColor: finalIcon, color: textColor || t.color }
       );
       w.__align = align;
       return finish(w);
@@ -662,6 +676,8 @@ function convertNativeWidget(el, ctx) {
           align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
           ...typo('menu_typography_', t),
           color_menu_item: t.color || '',
+          // carried for the faithful HTML renderer; Elementor ignores unknown keys
+          _elx_menu_items: entries.map((e) => ({ text: e.text, url: e.url, children: e.children || [] })),
         },
         { kind: 'menu', items: entries, align, color: t.color }
       );
@@ -687,6 +703,7 @@ function convertNativeWidget(el, ctx) {
           text_align: align,
           selected_icon: { value: 'fas fa-star', library: 'fa-solid' },
           primary_color: ctx.design.primary,
+          ...(iconUrl ? { _elx_icon_image: iconUrl } : {}),
         },
         { kind: 'iconbox', text: title, desc, iconUrl, hasSvg: !!svg }
       );
@@ -725,7 +742,7 @@ function convertNativeWidget(el, ctx) {
       const w = makeWidget(
         'loop-carousel',
         `${label} (${cards.length})`,
-        { template_id: '', slides_to_show: '3', autoplay: 'yes' },
+        { template_id: '', slides_to_show: '3', autoplay: 'yes', _elx_loop_cards: cards },
         { kind: 'loop', cards }
       );
       w.__align = 'center';
@@ -1233,7 +1250,12 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
           makeWidget(
             'nav-menu',
             'Nav Menu',
-            { menu: 'primary', layout: 'horizontal', align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start' },
+            {
+              menu: 'primary',
+              layout: 'horizontal',
+              align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
+              _elx_menu_items: entries.map((e) => ({ text: e.text, url: e.url, children: [] })),
+            },
             { kind: 'menu', items: entries, align }
           )
         );
@@ -1255,12 +1277,18 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
       texts.forEach((t) => ctx.seen.add(t.toLowerCase()));
       const inline = /inline|flex/i.test(cs.display || '') || /inline/.test(cls(child));
       if (isNav) {
+        const navEntries = texts.map((t, i) => ({ text: t, url: links[i] ? abs(attr(links[i], 'href'), ctx.base) : '', children: [] }));
         push(
           makeWidget(
             'nav-menu',
             'Nav Menu',
-            { menu: 'primary', layout: 'horizontal', align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start' },
-            { kind: 'menu', items: texts.map((t, i) => ({ text: t, url: links[i] ? abs(attr(links[i], 'href'), ctx.base) : '', children: [] })), align }
+            {
+              menu: 'primary',
+              layout: 'horizontal',
+              align_items: align === 'right' ? 'end' : align === 'center' ? 'center' : 'start',
+              _elx_menu_items: navEntries,
+            },
+            { kind: 'menu', items: navEntries, align }
           )
         );
       } else {
@@ -1278,9 +1306,10 @@ function genericWidgets(node, ctx, depth = 0, out = []) {
               })),
               space_between: { unit: 'px', size: inline ? 40 : 12, sizes: [] },
               icon_color: ctx.design.primary,
+              ...(normColor(cs.color) ? { text_color: normColor(cs.color) } : {}),
               align,
             },
-            { kind: 'list', items: texts, inline, iconColor: ctx.design.primary }
+            { kind: 'list', items: texts, inline, iconColor: ctx.design.primary, color: normColor(cs.color) || undefined }
           )
         );
       }
@@ -1475,7 +1504,15 @@ function genericSections(body, sheet, limit) {
       }
       const target = unwrap(el, sheet, 3);
       const kids = visibleKids(target, sheet).filter(meaningful);
-      if (kids.length >= 2 && kids.length <= 12 && kids.some((k) => weight(k) > 200)) {
+      // A uniform row of 2-6 similar children is a columns layout (cards,
+      // features, team grid) — never split it into orphan sections.
+      const tcs = computedStyle(sheet, target);
+      const rowLayout =
+        kids.length >= 2 &&
+        kids.length <= 6 &&
+        (/flex|grid/i.test(tcs.display || '') ||
+          kids.every((k) => k.tagName === kids[0].tagName && weight(k) > 60 && weight(k) < 2600));
+      if (!rowLayout && kids.length >= 2 && kids.length <= 12 && kids.some((k) => weight(k) > 200)) {
         next.push(...kids);
         changed = true;
       } else next.push(el);
@@ -1548,6 +1585,83 @@ const SECTION_NAMES = {
 };
 
 const sectionLabel = (type, index) => `${String(index + 1).padStart(2, '0')} · ${SECTION_NAMES[type] || 'Section'}`;
+
+/* ------------------------------------------------------------------ */
+/* Intrinsic SVG dims                                                  */
+/* ------------------------------------------------------------------ */
+
+// <img src="*.svg"> without explicit width/height has no reliable intrinsic
+// size: browsers fall back to 300x150 or stretch it to the column width —
+// which is exactly why icons, logos and menu toggles used to blow up in the
+// preview. Read the SVG header and set an explicit width on the widget.
+function svgDimsFrom(text) {
+  const m = String(text).match(/<svg\b[^>]*>/i);
+  if (!m) return null;
+  const tag = m[0];
+  const numAttr = (name) => {
+    const a = tag.match(new RegExp(name + '\\s*=\\s*["\']?([\\d.]+)(px)?["\']?', 'i'));
+    return a ? parseFloat(a[1]) : null;
+  };
+  let w = numAttr('width');
+  let h = numAttr('height');
+  const isFrac = (v) => typeof v === 'number' && v > 0 && v < 2;
+  if (w && isFrac(w)) w = null; // width="1" / "100%" style relative values are useless
+  if (h && isFrac(h)) h = null;
+  if (!w || !h) {
+    const vb = tag.match(/viewBox\s*=\s*["']\s*([\d.,\-\s]+)["']/i);
+    if (vb) {
+      const p = vb[1].trim().split(/[\s,]+/).map(Number);
+      if (p.length === 4 && p[2] > 0 && p[3] > 0) {
+        if (!w && !h) {
+          w = p[2];
+          h = p[3];
+        } else if (w && !h) h = (w * p[3]) / p[2];
+        else if (h && !w) w = (h * p[2]) / p[3];
+      }
+    }
+  }
+  if (!w || !h || w <= 0 || h <= 0 || w > 2000 || h > 2000) return null;
+  return { width: Math.round(w), height: Math.round(h) };
+}
+
+async function enrichSvgImageDims(builtSections) {
+  const byUrl = new Map();
+  const visit = (blocks) => {
+    for (const b of blocks) {
+      if (b.kind === 'widget') {
+        const w = b.widget;
+        if (!w || !w.settings) continue;
+        const url = w.widgetType === 'image' ? w.settings.image && w.settings.image.url : w.settings._elx_icon_image;
+        if (url && /\.svg([?#].*)?$/i.test(url) && !w.settings.width) {
+          const key = url.split(/[?#]/)[0];
+          if (!byUrl.has(key)) byUrl.set(key, []);
+          byUrl.get(key).push(w);
+        }
+      } else if (b.kind === 'row') {
+        b.columns.forEach((c) => visit(c.blocks));
+      }
+    }
+  };
+  builtSections.forEach((s) => s.columns.forEach((c) => visit(c.blocks)));
+  const urls = [...byUrl.keys()].slice(0, 12);
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(4000) });
+        if (!r.ok) return;
+        const text = (await r.text()).slice(0, 8000);
+        const dims = svgDimsFrom(text);
+        if (!dims) return;
+        byUrl.get(url).forEach((w) => {
+          w.settings.width = { unit: 'px', size: dims.width, sizes: [] };
+          w.__preview = { ...(w.__preview || {}), natWidth: dims.width, natHeight: dims.height };
+        });
+      } catch {
+        /* keep the widget as-is */
+      }
+    })
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Elementor emitters                                                  */
@@ -1883,6 +1997,14 @@ export async function cloneUrl(inputUrl, options = {}) {
     });
     built.length = 0;
     built.push(...merged);
+  }
+
+  // Recover intrinsic sizes for SVG images (icons, logos, menu toggles)
+  // before the section/widget trees are serialised.
+  try {
+    await enrichSvgImageDims(built);
+  } catch {
+    /* non-critical */
   }
 
   const sections = [];

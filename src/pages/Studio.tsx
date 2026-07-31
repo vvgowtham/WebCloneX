@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Globe, Zap, Layers, Image as ImageIcon, Palette, Clock, Download, Sparkles, Settings2, ChevronDown, Eye, Braces, ListTree, Boxes, ExternalLink,
+  Globe, Zap, Layers, Image as ImageIcon, Palette, Clock, Download, Sparkles, Settings2, ChevronDown, Eye, Braces, ListTree, Boxes, ExternalLink, Columns2,
 } from 'lucide-react';
 import type { CloneResult, SampleRow } from '../lib/types';
 import { Tag, Stat, Spinner, ErrorBox } from '../components/Bits';
 import StructureTree from '../components/StructureTree';
 import JsonViewer from '../components/JsonViewer';
 import RenderPreview from '../components/RenderPreview';
+import CompareDeck from '../components/CompareDeck';
 
 const PHASES = [
   'Resolving host & fetching HTML…',
@@ -17,7 +18,7 @@ const PHASES = [
   'Serialising Elementor template JSON…',
 ];
 
-type Tab = 'structure' | 'preview' | 'json' | 'assets';
+type Tab = 'compare' | 'structure' | 'preview' | 'json' | 'assets';
 
 export default function Studio() {
   const [url, setUrl] = useState('https://polytechpvcprofile.com/');
@@ -69,7 +70,7 @@ export default function Studio() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
         setResult(data);
-        setTab('structure');
+        setTab('compare');
         setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Unknown error');
@@ -317,6 +318,7 @@ export default function Studio() {
           {/* tabs */}
           <div className="flex flex-wrap items-center gap-2">
             {[
+              { k: 'compare' as Tab, l: 'Live compare', i: Columns2 },
               { k: 'structure' as Tab, l: 'Structure tree', i: ListTree },
               { k: 'preview' as Tab, l: 'Block preview', i: Eye },
               { k: 'json' as Tab, l: 'Elementor JSON', i: Braces },
@@ -337,6 +339,7 @@ export default function Studio() {
             </div>
           </div>
 
+          {tab === 'compare' && <CompareDeck result={result} />}
           {tab === 'structure' && <StructureTree sections={result.sections} />}
           {tab === 'preview' && <RenderPreview sections={result.sections} primary={result.design.primary} />}
           {tab === 'json' && (
