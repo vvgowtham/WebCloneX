@@ -1,10 +1,11 @@
 {
-  "name": "placeholder-model-1",
+  "name": "webclonex",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "node --env-file=.env dev-server.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
